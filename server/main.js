@@ -3,6 +3,7 @@ import { Accounts } from 'meteor/accounts-base';
 import { WebApp } from 'meteor/webapp';
 import { ServiceConfiguration } from 'meteor/service-configuration';
 import '/imports/api/server/webdav.js';
+import { UserSettings } from '/imports/api/collections';
 
 // Copy Google profile picture to user.profile on login (so it's available on client)
 Accounts.onLogin(async ({ user }) => {
@@ -40,24 +41,66 @@ async function configureGoogleOAuth() {
   console.log('Google OAuth configured');
 }
 
+// Helper to get user from request cookies
+async function getUserFromRequest(req) {
+  const cookies = req.headers.cookie || '';
+  const tokenMatch = cookies.match(/meteor_login_token=([^;]+)/);
+  if (!tokenMatch) return null;
+
+  const token = decodeURIComponent(tokenMatch[1]);
+  const hashedToken = Accounts._hashLoginToken(token);
+
+  return Meteor.users.findOneAsync({
+    'services.resume.loginTokens.hashedToken': hashedToken
+  });
+}
+
 // Image proxy for WebDAV resources
 WebApp.connectHandlers.use('/webdav-proxy', async (req, res) => {
   const imagePath = req.url; // e.g., /path/to/image.png
 
-  const url = process.env.WEBDAV_URL;
-  const username = process.env.WEBDAV_USERNAME;
-  const password = process.env.WEBDAV_PASSWORD;
+  // Get user from session cookie
+  const authDisabled = Meteor.settings?.public?.disableAuth === true;
+  let userId;
 
-  if (!url || !username || !password) {
+  if (authDisabled) {
+    userId = 'test-user-id';
+  } else {
+    const user = await getUserFromRequest(req);
+    userId = user?._id;
+  }
+
+  if (!userId) {
+    res.writeHead(401);
+    res.end('Not authenticated');
+    return;
+  }
+
+  // Get per-user WebDAV settings
+  const userSettings = await UserSettings.findOneAsync({ userId });
+  if (!userSettings?.webdav) {
+    // Fall back to global settings in test mode
+    if (authDisabled) {
+      const settings = Meteor.settings?.webdav || {};
+      if (settings.url && settings.username && settings.password) {
+        const baseUrl = settings.url.replace(/\/$/, '');
+        const auth = 'Basic ' + Buffer.from(`${settings.username}:${settings.password}`).toString('base64');
+        return proxyRequest(baseUrl + imagePath, auth, res);
+      }
+    }
     res.writeHead(500);
     res.end('WebDAV not configured');
     return;
   }
 
+  const { url, username, password } = userSettings.webdav;
   const baseUrl = url.replace(/\/$/, '');
   const auth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-  const fullUrl = baseUrl + imagePath;
 
+  await proxyRequest(baseUrl + imagePath, auth, res);
+});
+
+async function proxyRequest(fullUrl, auth, res) {
   try {
     const response = await fetch(fullUrl, {
       method: 'GET',
@@ -82,7 +125,7 @@ WebApp.connectHandlers.use('/webdav-proxy', async (req, res) => {
     res.writeHead(500);
     res.end('Proxy error');
   }
-});
+}
 
 Meteor.startup(async () => {
   configureGoogleOAuth();

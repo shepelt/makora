@@ -324,6 +324,18 @@ test.describe('Makora Images', () => {
     const images = page.locator('.ProseMirror img');
     const count = await images.count();
     expect(count).toBeGreaterThanOrEqual(3);
+
+    // Verify at least one image actually loaded (not broken)
+    // naturalWidth/Height > 0 means the image data was successfully fetched
+    // Check for reasonable size (> 10px) to catch corrupted/placeholder images
+    const firstImage = images.first();
+    await expect(firstImage).toBeVisible();
+    const { naturalWidth, naturalHeight } = await firstImage.evaluate((el: HTMLImageElement) => ({
+      naturalWidth: el.naturalWidth,
+      naturalHeight: el.naturalHeight,
+    }));
+    expect(naturalWidth).toBeGreaterThan(10);
+    expect(naturalHeight).toBeGreaterThan(10);
   });
 
   test('relative image uses webdav-proxy', async ({ page }) => {
@@ -337,7 +349,7 @@ test.describe('Makora Images', () => {
     const relativeImage = page.locator('.ProseMirror img').first();
     const src = await relativeImage.getAttribute('src');
     expect(src).toContain('/webdav-proxy');
-    expect(src).toContain('test-image.png');
+    expect(src).toContain('test-image.jpg');
   });
 
   test('saves images back as markdown format', async ({ page }) => {
@@ -369,6 +381,6 @@ test.describe('Makora Images', () => {
     // Should NOT have proxy URLs (images should be local paths)
     expect(savedContent).not.toContain('/webdav-proxy');
     // Should have image paths (either relative ./ or absolute /)
-    expect(savedContent).toContain('images/test-image.png');
+    expect(savedContent).toContain('images/test-image.jpg');
   });
 });

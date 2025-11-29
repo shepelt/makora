@@ -8,7 +8,8 @@
     "test:unit": "meteor test --once --driver-package meteortesting:mocha --settings settings-local.json",
     "test:unit:watch": "meteor test --driver-package meteortesting:mocha --settings settings-local.json",
     "visualize": "meteor --production --extra-packages bundle-visualizer",
-    "screenshot": "node scripts/screenshot.js"
+    "screenshot": "node scripts/screenshot.js",
+    "fetch-md": "node scripts/fetch-md.js"
   },
   "dependencies": {
     "@babel/runtime": "^7.23.5",
