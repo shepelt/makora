@@ -7,7 +7,8 @@
     "test:ui": "npx playwright test --ui",
     "test:unit": "meteor test --once --driver-package meteortesting:mocha --settings settings-local.json",
     "test:unit:watch": "meteor test --driver-package meteortesting:mocha --settings settings-local.json",
-    "visualize": "meteor --production --extra-packages bundle-visualizer"
+    "visualize": "meteor --production --extra-packages bundle-visualizer",
+    "screenshot": "node scripts/screenshot.js"
   },
   "dependencies": {
     "@babel/runtime": "^7.23.5",

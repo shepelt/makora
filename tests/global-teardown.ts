@@ -4,7 +4,7 @@ async function globalTeardown() {
   console.log('Stopping test environment...');
 
   // Stop Meteor app
-  const meteorPidFile = '.meteor-test-pid';
+  const meteorPidFile = '/tmp/makora-meteor-test-pid';
   if (existsSync(meteorPidFile)) {
     const pid = readFileSync(meteorPidFile, 'utf-8').trim();
     try {
@@ -17,7 +17,7 @@ async function globalTeardown() {
   }
 
   // Stop WebDAV server
-  const webdavPidFile = '.webdav-test-pid';
+  const webdavPidFile = '/tmp/makora-webdav-test-pid';
   if (existsSync(webdavPidFile)) {
     const pid = readFileSync(webdavPidFile, 'utf-8').trim();
     try {

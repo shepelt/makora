@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { writeFileSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
@@ -6,7 +6,32 @@ import { resolve } from 'path';
 const testFilePath = resolve('./tests/fixtures/webdav/test.md');
 let originalContent: string;
 
+// Helper to wait for app to be fully loaded (handles server restarts)
+async function waitForAppReady(page: Page) {
+  // Wait for the file browser to show files (indicates app is connected to WebDAV)
+  // Use .first() to handle cases where test.md appears in both header and file browser
+  await expect(page.getByText('test.md').first()).toBeVisible({ timeout: 20000 });
+}
+
 test.describe('Makora Editor', () => {
+  // Clear test user settings before all tests to ensure we use the test WebDAV server
+  test.beforeAll(async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.goto('/');
+    // Call the clear settings method via browser console
+    await page.evaluate(async () => {
+      // @ts-ignore - Meteor is available in the browser
+      if (typeof Meteor !== 'undefined') {
+        try {
+          await Meteor.callAsync('debug.clearTestUserSettings');
+        } catch (e) {
+          console.log('Could not clear test user settings:', e);
+        }
+      }
+    });
+    await page.close();
+  });
+
   test('shows welcome screen when no file is selected', async ({ page }) => {
     await page.goto('/');
 
@@ -18,11 +43,12 @@ test.describe('Makora Editor', () => {
 
   test('displays file browser with files', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
-    // Should show file browser
-    await expect(page.getByText('Files')).toBeVisible();
+    // Should show file browser with root folder
+    await expect(page.getByText('Root')).toBeVisible();
 
-    // Should show test.md file
+    // Should show test.md file (already checked by waitForAppReady)
     await expect(page.getByText('test.md')).toBeVisible();
 
     // Should show Subfolder directory
@@ -31,6 +57,7 @@ test.describe('Makora Editor', () => {
 
   test('opens a file when clicked', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Click on test.md
     await page.getByText('test.md').click();
@@ -44,6 +71,7 @@ test.describe('Makora Editor', () => {
 
   test('expands directory when clicked', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Click on Subfolder to expand
     await page.getByText('Subfolder').click();
@@ -54,6 +82,7 @@ test.describe('Makora Editor', () => {
 
   test('opens nested file', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Expand Subfolder
     await page.getByText('Subfolder').click();
@@ -68,6 +97,7 @@ test.describe('Makora Editor', () => {
 
   test('can edit file content', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Open test.md
     await page.getByText('test.md').click();
@@ -85,6 +115,7 @@ test.describe('Makora Editor', () => {
 
   test('shows save button when file is open', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // No save button initially
     await expect(page.getByRole('button', { name: /save/i })).not.toBeVisible();
@@ -99,6 +130,7 @@ test.describe('Makora Editor', () => {
 
   test('context menu opens on right-click directory', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Right-click on Subfolder
     await page.getByText('Subfolder').click({ button: 'right' });
@@ -109,9 +141,7 @@ test.describe('Makora Editor', () => {
 
   test('refresh button reloads file list', async ({ page }) => {
     await page.goto('/');
-
-    // Wait for initial load
-    await expect(page.getByText('test.md')).toBeVisible();
+    await waitForAppReady(page);
 
     // Click refresh
     await page.getByTitle('Refresh').click();
@@ -124,8 +154,8 @@ test.describe('Makora Editor', () => {
     // Start with path param
     await page.goto('/?path=/Subfolder');
 
-    // Should show nested.md directly
-    await expect(page.getByText('nested.md')).toBeVisible();
+    // Should show nested.md directly (wait longer for app to load with path param)
+    await expect(page.getByText('nested.md')).toBeVisible({ timeout: 15000 });
 
     // Click to open
     await page.getByText('nested.md').click();
@@ -149,11 +179,13 @@ test.describe.serial('Makora Editing', () => {
 
   // Helper to click test.md in file browser (not header)
   const clickTestFile = async (page: any) => {
+    await waitForAppReady(page);
     await page.locator('.flex-1.truncate', { hasText: 'test.md' }).click();
   };
 
   test('saves file with button click and preserves existing content', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Open test.md
     await page.getByText('test.md').click();
@@ -195,6 +227,7 @@ test.describe.serial('Makora Editing', () => {
 
   test('saves file with keyboard shortcut Cmd/Ctrl+S', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Open test.md
     await page.getByText('test.md').click();
@@ -223,6 +256,7 @@ test.describe.serial('Makora Editing', () => {
 
   test('preserves markdown formatting after save', async ({ page }) => {
     await page.goto('/');
+    await waitForAppReady(page);
 
     // Open test.md
     await page.getByText('test.md').click();

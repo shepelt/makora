@@ -2,3 +2,8 @@ playwright-report/
 test-results/
 e2e/
 tests/
+scripts/
+.webdav-server.js
+.webdav-test-pid
+.meteor-test-pid
+settings-test.json
