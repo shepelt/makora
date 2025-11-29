@@ -312,9 +312,36 @@ test.describe('Makora Images', () => {
     writeFileSync(imageTestFilePath, originalImageContent);
   });
 
-  test('renders images from markdown file', async ({ page }) => {
+  // Helper to set up authenticated session for image proxy
+  // This mimics how Meteor actually stores auth tokens (localStorage, not cookies)
+  async function setupAuthSession(page: any) {
     await page.goto('/');
+    // Wait for Meteor to be available
+    await page.waitForFunction(() => typeof (window as any).Meteor !== 'undefined', { timeout: 15000 });
+
+    // Create test user with token
+    const result = await page.evaluate(async () => {
+      return new Promise((resolve, reject) => {
+        // @ts-ignore - Meteor is available in browser
+        Meteor.call('debug.createTestUserWithToken', (err: any, res: any) => {
+          if (err) reject(new Error(err.reason || err.message));
+          else resolve(res);
+        });
+      });
+    }) as { token: string; userId: string };
+
+    // Set the login token in localStorage (like Meteor does - NOT cookies)
+    await page.evaluate((token: string) => {
+      localStorage.setItem('Meteor.loginToken', token);
+    }, result.token);
+
+    // Reload so the client uses the token from localStorage
+    await page.reload();
     await waitForAppReady(page);
+  }
+
+  test('renders images from markdown file', async ({ page }) => {
+    await setupAuthSession(page);
 
     // Click on image-test.md
     await page.getByText('image-test.md').click();
@@ -338,23 +365,53 @@ test.describe('Makora Images', () => {
     expect(naturalHeight).toBeGreaterThan(10);
   });
 
-  test('relative image uses webdav-proxy', async ({ page }) => {
-    await page.goto('/');
-    await waitForAppReady(page);
+  test('relative image uses webdav-proxy with token', async ({ page }) => {
+    await setupAuthSession(page);
 
     await page.getByText('image-test.md').click();
     await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
 
-    // Check that relative image src is transformed to use proxy
+    // Check that relative image src is transformed to use proxy with auth token
     const relativeImage = page.locator('.ProseMirror img').first();
     const src = await relativeImage.getAttribute('src');
     expect(src).toContain('/webdav-proxy');
     expect(src).toContain('test-image.jpg');
+    expect(src).toContain('?token='); // Must include auth token
+  });
+
+  test('client includes auth token in image URLs', async ({ page }) => {
+    await setupAuthSession(page);
+
+    // Open image-test.md
+    await page.getByText('image-test.md').click();
+    await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Verify the client includes auth token in image URLs (the actual fix)
+    const relativeImage = page.locator('.ProseMirror img').first();
+    const src = await relativeImage.getAttribute('src');
+    expect(src).toContain('/webdav-proxy');
+    expect(src).toContain('?token='); // Client must include auth token
+
+    // Verify image actually loads (not 401)
+    const { naturalWidth, naturalHeight } = await relativeImage.evaluate((el: HTMLImageElement) => ({
+      naturalWidth: el.naturalWidth,
+      naturalHeight: el.naturalHeight,
+    }));
+    expect(naturalWidth).toBeGreaterThan(10);
+    expect(naturalHeight).toBeGreaterThan(10);
+  });
+
+  test('proxy rejects requests without token', async ({ page, request }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Test proxy WITHOUT token - should return 401
+    const noAuthResponse = await request.get('http://localhost:4010/webdav-proxy/images/test-image.jpg');
+    expect(noAuthResponse.status()).toBe(401);
   });
 
   test('saves images back as markdown format', async ({ page }) => {
-    await page.goto('/');
-    await waitForAppReady(page);
+    await setupAuthSession(page);
 
     await page.getByText('image-test.md').click();
     await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });

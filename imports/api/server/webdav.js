@@ -127,6 +127,67 @@ Meteor.methods({
     return { success: true };
   },
 
+  // Debug: Create a test user with a known login token for testing proxy authentication
+  // Returns the token that should be used as meteor_login_token cookie
+  // Only works when disableAuth is true
+  async 'debug.createTestUserWithToken'() {
+    const authDisabled = Meteor.settings?.public?.disableAuth === true;
+    if (!authDisabled) {
+      throw new Meteor.Error('not-allowed', 'Debug methods only available in test mode');
+    }
+
+    const { Accounts } = require('meteor/accounts-base');
+
+    // Create or update test user
+    const testUserId = 'e2e-test-user';
+    const existingUser = await Meteor.users.findOneAsync({ _id: testUserId });
+
+    if (!existingUser) {
+      await Meteor.users.insertAsync({
+        _id: testUserId,
+        emails: [{ address: 'e2e-test@example.com', verified: true }],
+        services: { resume: { loginTokens: [] } },
+      });
+    }
+
+    // Generate a login token
+    const stampedToken = Accounts._generateStampedLoginToken();
+    const hashedToken = Accounts._hashLoginToken(stampedToken.token);
+
+    // Store the hashed token
+    await Meteor.users.updateAsync(testUserId, {
+      $push: {
+        'services.resume.loginTokens': {
+          hashedToken,
+          when: stampedToken.when,
+        },
+      },
+    });
+
+    // Set up WebDAV settings for this test user (use the global test settings)
+    const settings = Meteor.settings?.webdav || {};
+    if (settings.url && settings.username && settings.password) {
+      await UserSettings.upsertAsync(
+        { userId: testUserId },
+        {
+          $set: {
+            userId: testUserId,
+            webdav: {
+              url: settings.url,
+              username: settings.username,
+              password: settings.password,
+            },
+            updatedAt: new Date(),
+          },
+          $setOnInsert: { createdAt: new Date() },
+        }
+      );
+    }
+
+    // Return the unhashed token (this is what goes in the cookie)
+    return { token: stampedToken.token, userId: testUserId };
+  },
+
   // Debug: Copy WebDAV settings from a user (by email) to test-user-id
   // Only works when disableAuth is true
   async 'debug.useSettingsFromEmail'(email) {

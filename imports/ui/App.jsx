@@ -202,7 +202,10 @@ function EditorPage() {
         const absolutePath = `${dir}/${cleanSrc}`.replace(/\/+/g, '/');
         // Encode path segments but keep slashes
         const encodedPath = absolutePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
-        return `/webdav-proxy${encodedPath}`;
+        // Include auth token for proxy authentication (Meteor stores token in localStorage)
+        const token = Meteor._localStorage.getItem('Meteor.loginToken');
+        const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+        return `/webdav-proxy${encodedPath}${tokenParam}`;
       };
 
       let transformedContent = fileContent
