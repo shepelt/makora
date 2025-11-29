@@ -2,9 +2,11 @@
   "name": "makora",
   "private": true,
   "scripts": {
-    "start": "dotenv -- meteor run --settings settings-local.json",
-    "test": "meteor test --once --driver-package meteortesting:mocha --settings settings-local.json",
-    "test:watch": "meteor test --driver-package meteortesting:mocha --settings settings-local.json",
+    "start": "meteor run --settings settings-local.json --port 4000",
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:unit": "meteor test --once --driver-package meteortesting:mocha --settings settings-local.json",
+    "test:unit:watch": "meteor test --driver-package meteortesting:mocha --settings settings-local.json",
     "visualize": "meteor --production --extra-packages bundle-visualizer"
   },
   "dependencies": {
@@ -27,7 +29,10 @@
     "webdav": "^5.8.0"
   },
   "devDependencies": {
-    "dotenv-cli": "^11.0.0"
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^24.10.1",
+    "dotenv-cli": "^11.0.0",
+    "webdav-server": "^2.6.2"
   },
   "meteor": {
     "mainModule": {

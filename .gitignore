@@ -6,3 +6,17 @@ node_modules/
 .env
 .env.local
 settings-local.json
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Test artifacts
+settings-test.json
+.meteor-test-pid
+.webdav-test-pid
+.webdav-server.js
+.env.test

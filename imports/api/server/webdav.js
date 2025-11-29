@@ -1,12 +1,13 @@
 import { Meteor } from 'meteor/meteor';
 
 function getConfig() {
-  const url = process.env.WEBDAV_URL;
-  const username = process.env.WEBDAV_USERNAME;
-  const password = process.env.WEBDAV_PASSWORD;
+  const settings = Meteor.settings?.webdav || {};
+  const url = settings.url;
+  const username = settings.username;
+  const password = settings.password;
 
   if (!url || !username || !password) {
-    throw new Meteor.Error('webdav-config', 'WebDAV not configured. Check .env file.');
+    throw new Meteor.Error('webdav-config', 'WebDAV not configured. Check settings.json.');
   }
 
   // Extract the path prefix from the URL (e.g., /remote.php/dav/files/user)
@@ -30,6 +31,16 @@ function parseWebDAVResponse(xml, basePath) {
 
     const hrefMatch = /<d:href>([^<]+)<\/d:href>/i.exec(response);
     let href = hrefMatch ? decodeURIComponent(hrefMatch[1]) : '';
+
+    // Handle full URLs in href (some WebDAV servers return full URLs)
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      try {
+        const url = new URL(href);
+        href = url.pathname;
+      } catch (e) {
+        // If URL parsing fails, keep the original
+      }
+    }
 
     // Normalize path: remove basePath prefix to get relative path
     if (basePath && href.startsWith(basePath)) {

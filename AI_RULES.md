@@ -1,26 +1,46 @@
 # AI Development Rules for Makora
 
 ## Project Overview
-Makora is a Meteor.js application.
+Makora is a WYSIWYG markdown editor with WebDAV backend support. It provides a clean, distraction-free editing experience for markdown files stored on any WebDAV-compatible server (Nextcloud, ownCloud, etc.).
 
 ## Technology Stack
 - **Framework**: Meteor.js 3.x
-- **Frontend**: React 18.2
+- **Frontend**: React 18.x with Tiptap editor
+- **Editor**: Tiptap (ProseMirror-based WYSIWYG)
+- **Styling**: Tailwind CSS
+- **Storage**: WebDAV (remote file system)
+- **Testing**: Playwright (E2E), Mocha (unit)
 - **Language**: JavaScript (ES6+)
-- **Database**: MongoDB
-- **Build System**: Meteor modern build stack
 
 ## Project Structure
-Follow the canonical Meteor.js application structure:
-
 ```
 /client             # Client entry point
 /server             # Server entry point
 /imports
-  /api              # Collections, Methods, Publications
-  /ui               # React components
+  /api/server       # WebDAV methods and server-side logic
+  /ui               # React components (App, Editor, FileBrowser, etc.)
 /public             # Static assets
-/private            # Server-only assets
+/tests              # Test setup and fixtures
+  /fixtures/webdav  # Test WebDAV content
+/e2e                # Playwright E2E tests
+```
+
+## Key Components
+- **App.jsx**: Main application with routing and file loading
+- **Editor.jsx**: Tiptap WYSIWYG editor wrapper
+- **FileBrowser.jsx**: Tree view file browser with WebDAV integration
+- **webdav.js**: Server-side WebDAV methods (list, read, write)
+
+## Configuration
+WebDAV settings are stored in `settings.json` (or `settings-local.json` for dev):
+```json
+{
+  "webdav": {
+    "url": "https://your-server.com/remote.php/dav/files/username",
+    "username": "your-username",
+    "password": "your-password"
+  }
+}
 ```
 
 ## Code Conventions
@@ -29,21 +49,40 @@ Follow the canonical Meteor.js application structure:
 - Place all application code inside `/imports` directory
 - Use ES6 `import`/`export` modules
 - Client code: `/imports/ui`
-- Server code: `/imports/api`
-- Shared code: Can be in either, but avoid client-specific code in `/api`
+- Server code: `/imports/api/server`
 
 ### Naming Conventions
-- **Collections**: PascalCase with "Collection" suffix (e.g., `ProjectsCollection`)
-- **Components**: PascalCase (e.g., `BuilderCanvas.jsx`)
-- **Files**: Match the exported component/module name
-- **Methods**: camelCase (e.g., `projects.insert`)
+- **Components**: PascalCase (e.g., `FileBrowser.jsx`)
+- **Methods**: Namespaced (e.g., `webdav.list`, `webdav.read`)
 
 ### Meteor Patterns
-- Use `async`/`await` for all database operations
-- Collections: `new Mongo.Collection('name')`
-- Methods: `Meteor.methods({ 'name': async function() {} })`
-- Publications: `Meteor.publish('name', function() {})`
-- Subscriptions: `useTracker()` for React components
+- Use `async`/`await` for all async operations
+- Use `Meteor.callAsync()` for method calls from client
+- Settings via `Meteor.settings`
+
+## Development Workflow
+
+### Running the App
+```bash
+npm start          # Dev server on port 4000
+```
+
+### Testing
+```bash
+npm test           # Run all E2E tests (Playwright)
+npm run test:unit  # Run unit tests (Mocha)
+```
+
+The E2E test suite:
+- Automatically starts a Node.js WebDAV server on port 4080
+- Starts Meteor on port 4010 for test isolation
+- Runs 13 tests covering file browsing, editing, and saving
+- Cleans up all services after tests
+
+### Test Structure
+- Tests in `/e2e/*.spec.ts` (Playwright)
+- Test fixtures in `/tests/fixtures/webdav/`
+- Global setup/teardown in `/tests/global-setup.ts` and `/tests/global-teardown.ts`
 
 ## Development Philosophy
 
@@ -55,24 +94,9 @@ Follow the canonical Meteor.js application structure:
 - Don't create "future-proof" abstractions
 
 ### When to Refactor
-- When you copy-paste code 3+ times → extract to function
-- When a file exceeds 300 lines → consider splitting
-- When a pattern becomes clear → then abstract it
-- Never before
-
-## Development Workflow
-- Keep components small and focused
-- Co-locate related files (component, styles, tests)
-- Write clear, self-documenting code
-- Follow Meteor Guide best practices
-- **Development Server**: Run via `npm start`
-  - Includes Hot Module Replacement (HMR) for instant UI updates
-  - Auto-restarts server on backend code changes
-
-## Testing
-- **Test Framework**: Mocha via `meteortesting:mocha` package
-- **Test Files**: `*.tests.js` files
-- **Run All Tests**: `npm test`
+- When you copy-paste code 3+ times -> extract to function
+- When a file exceeds 300 lines -> consider splitting
+- When a pattern becomes clear -> then abstract it
 
 ## Notes
 This file will evolve as the project grows and patterns emerge.
