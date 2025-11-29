@@ -2,8 +2,7 @@ import React from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Extension } from '@tiptap/core';
-// Markdown extension removed - was causing double-parsing of code blocks
-// import { Markdown } from 'tiptap-markdown';
+import { Markdown } from 'tiptap-markdown';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Image from '@tiptap/extension-image';
@@ -56,12 +55,16 @@ export function WysiwygEditor({ initialValue = '', onChange }) {
       TaskItem.configure({
         nested: true,
       }),
-      // Markdown extension removed - was causing double-parsing of HTML content
+      Markdown.configure({
+        html: true,
+        transformCopiedText: true,
+        transformPastedText: true,
+      }),
     ],
-    content: initialValue, // HTML content from marked
+    content: initialValue, // Raw markdown - tiptap-markdown handles parsing
     onUpdate: ({ editor }) => {
-      // Always output HTML - we use Turndown for markdown conversion on save
-      onChange?.(editor.getHTML());
+      // Output markdown directly via tiptap-markdown
+      onChange?.(editor.storage.markdown.getMarkdown());
     },
   });
 

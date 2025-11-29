@@ -9,8 +9,8 @@ let originalContent: string;
 // Helper to wait for app to be fully loaded (handles server restarts)
 async function waitForAppReady(page: Page) {
   // Wait for the file browser to show files (indicates app is connected to WebDAV)
-  // Use .first() to handle cases where test.md appears in both header and file browser
-  await expect(page.getByText('test.md').first()).toBeVisible({ timeout: 20000 });
+  // Use exact match to avoid matching image-test.md
+  await expect(page.getByText('test.md', { exact: true }).first()).toBeVisible({ timeout: 20000 });
 }
 
 test.describe('Makora Editor', () => {
@@ -49,7 +49,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByText('Root')).toBeVisible();
 
     // Should show test.md file (already checked by waitForAppReady)
-    await expect(page.getByText('test.md')).toBeVisible();
+    await expect(page.getByText('test.md', { exact: true })).toBeVisible();
 
     // Should show Subfolder directory
     await expect(page.getByText('Subfolder')).toBeVisible();
@@ -60,13 +60,13 @@ test.describe('Makora Editor', () => {
     await waitForAppReady(page);
 
     // Click on test.md
-    await page.getByText('test.md').click();
+    await page.getByText('test.md', { exact: true }).click();
 
     // Should show loading spinner then content
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Header should show filename (use first() since it also appears in file browser)
-    await expect(page.getByText('test.md').first()).toBeVisible();
+    await expect(page.getByText('test.md', { exact: true }).first()).toBeVisible();
   });
 
   test('expands directory when clicked', async ({ page }) => {
@@ -100,7 +100,7 @@ test.describe('Makora Editor', () => {
     await waitForAppReady(page);
 
     // Open test.md
-    await page.getByText('test.md').click();
+    await page.getByText('test.md', { exact: true }).click();
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Click in editor and type
@@ -121,7 +121,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByRole('button', { name: /save/i })).not.toBeVisible();
 
     // Open file
-    await page.getByText('test.md').click();
+    await page.getByText('test.md', { exact: true }).click();
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Save button should appear
@@ -147,7 +147,7 @@ test.describe('Makora Editor', () => {
     await page.getByTitle('Refresh').click();
 
     // Files should still be visible after refresh
-    await expect(page.getByText('test.md')).toBeVisible();
+    await expect(page.getByText('test.md', { exact: true })).toBeVisible();
   });
 
   test('preserves path param when opening file', async ({ page }) => {
@@ -180,7 +180,8 @@ test.describe.serial('Makora Editing', () => {
   // Helper to click test.md in file browser (not header)
   const clickTestFile = async (page: any) => {
     await waitForAppReady(page);
-    await page.locator('.flex-1.truncate', { hasText: 'test.md' }).click();
+    // Target file browser item specifically (has truncate class), not header
+    await page.locator('.truncate').getByText('test.md', { exact: true }).click();
   };
 
   test('saves file with button click and preserves existing content', async ({ page }) => {
@@ -188,7 +189,7 @@ test.describe.serial('Makora Editing', () => {
     await waitForAppReady(page);
 
     // Open test.md
-    await page.getByText('test.md').click();
+    await page.getByText('test.md', { exact: true }).click();
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Verify existing content before edit
@@ -230,7 +231,7 @@ test.describe.serial('Makora Editing', () => {
     await waitForAppReady(page);
 
     // Open test.md
-    await page.getByText('test.md').click();
+    await page.getByText('test.md', { exact: true }).click();
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Add unique content
@@ -259,7 +260,7 @@ test.describe.serial('Makora Editing', () => {
     await waitForAppReady(page);
 
     // Open test.md
-    await page.getByText('test.md').click();
+    await page.getByText('test.md', { exact: true }).click();
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Verify existing formatting is preserved (bold, italic, code block, lists)
@@ -296,5 +297,78 @@ test.describe.serial('Makora Editing', () => {
     await expect(page.getByText('italic text')).toBeVisible();
     await expect(page.getByText("console.log('Hello world')")).toBeVisible();
     await expect(page.getByText('Bullet point one')).toBeVisible();
+  });
+});
+
+test.describe('Makora Images', () => {
+  const imageTestFilePath = resolve('./tests/fixtures/webdav/image-test.md');
+  let originalImageContent: string;
+
+  test.beforeAll(() => {
+    originalImageContent = readFileSync(imageTestFilePath, 'utf-8');
+  });
+
+  test.afterEach(() => {
+    writeFileSync(imageTestFilePath, originalImageContent);
+  });
+
+  test('renders images from markdown file', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Click on image-test.md
+    await page.getByText('image-test.md').click();
+    await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Should have images rendered (tiptap-markdown may render HTML images differently)
+    const images = page.locator('.ProseMirror img');
+    const count = await images.count();
+    expect(count).toBeGreaterThanOrEqual(3);
+  });
+
+  test('relative image uses webdav-proxy', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('image-test.md').click();
+    await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Check that relative image src is transformed to use proxy
+    const relativeImage = page.locator('.ProseMirror img').first();
+    const src = await relativeImage.getAttribute('src');
+    expect(src).toContain('/webdav-proxy');
+    expect(src).toContain('test-image.png');
+  });
+
+  test('saves images back as markdown format', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('image-test.md').click();
+    await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Add some text to trigger a change
+    const editor = page.locator('.ProseMirror');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nEdited image test');
+
+    // Save
+    await page.keyboard.press('Control+s');
+    const saveButton = page.getByRole('button', { name: /save/i });
+    await expect(saveButton).not.toBeDisabled({ timeout: 5000 });
+    await page.waitForTimeout(500);
+
+    // Read saved file and verify images are in markdown format (not HTML)
+    const savedContent = readFileSync(imageTestFilePath, 'utf-8');
+
+    // Should have markdown image syntax
+    expect(savedContent).toContain('![');
+    expect(savedContent).toContain('](');
+
+    // Should NOT have proxy URLs (images should be local paths)
+    expect(savedContent).not.toContain('/webdav-proxy');
+    // Should have image paths (either relative ./ or absolute /)
+    expect(savedContent).toContain('images/test-image.png');
   });
 });

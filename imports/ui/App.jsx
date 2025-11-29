@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import { marked } from 'marked';
-import TurndownService from 'turndown';
 import { WysiwygEditor } from './Editor';
 import { FileBrowser } from './FileBrowser';
 import { SplitPanel } from './SplitPanel';
@@ -161,15 +159,6 @@ function EditorPage() {
     loadBasePath();
   }, []);
 
-  // Initialize Turndown for HTML to Markdown conversion
-  const turndownService = useMemo(() => {
-    const service = new TurndownService({
-      headingStyle: 'atx',
-      codeBlockStyle: 'fenced',
-      bulletListMarker: '-',
-    });
-    return service;
-  }, []);
 
   // Load file from URL on mount or when file param changes
   useEffect(() => {
@@ -235,9 +224,8 @@ function EditorPage() {
           return `![${alt}](${transformSrc(src)})`;
         });
 
-      // Convert markdown to HTML for the editor
-      const htmlContent = await marked.parse(transformedContent);
-      setContent(htmlContent);
+      // Pass raw markdown to editor - tiptap-markdown handles parsing
+      setContent(transformedContent);
       setEditorKey(k => k + 1);
     } catch (err) {
       console.error('Failed to load file:', err);
@@ -280,10 +268,9 @@ function EditorPage() {
 
     setSaving(true);
     try {
-      // Convert HTML to Markdown first
-      const markdownContent = turndownService.turndown(content);
-      // Then restore relative image paths
-      const saveContent = prepareForSave(markdownContent);
+      // content is already markdown from tiptap-markdown
+      // Just restore relative image paths
+      const saveContent = prepareForSave(content);
       await Meteor.callAsync('webdav.write', selectedFile.filename, saveContent);
       console.log('File saved successfully');
     } catch (err) {
