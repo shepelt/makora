@@ -141,6 +141,26 @@ function EditorPage() {
   const [saving, setSaving] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Load saved basePath into URL on mount (if no path param already)
+  useEffect(() => {
+    if (searchParams.get('path')) return; // Already have a path
+    const loadBasePath = async () => {
+      try {
+        const settings = await Meteor.callAsync('settings.getWebdav');
+        if (settings?.basePath && settings.basePath !== '/') {
+          setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            next.set('path', settings.basePath);
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load basePath:', err);
+      }
+    };
+    loadBasePath();
+  }, []);
+
   // Initialize Turndown for HTML to Markdown conversion
   const turndownService = useMemo(() => {
     const service = new TurndownService({

@@ -87,6 +87,58 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, load
   );
 }
 
+const SORT_OPTIONS = [
+  { value: 'name-asc', label: 'Name (A-Z)' },
+  { value: 'name-desc', label: 'Name (Z-A)' },
+  { value: 'date-desc', label: 'Date (Newest)' },
+  { value: 'date-asc', label: 'Date (Oldest)' },
+];
+
+function SortDropdown({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  const current = SORT_OPTIONS.find(o => o.value === value) || SORT_OPTIONS[0];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded flex items-center gap-1"
+        title="Sort order"
+      >
+        <span>↕</span>
+        <span className="hidden sm:inline">{current.label}</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded shadow-lg border border-gray-200 py-1 z-50">
+          {SORT_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              onClick={() => { onChange(option.value); setOpen(false); }}
+              className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-100 ${value === option.value ? 'bg-gray-50 font-medium' : ''}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FileBrowser({ onFileSelect, basePath = '/' }) {
   const [rootItems, setRootItems] = useState([]);
   const [expandedPaths, setExpandedPaths] = useState(new Map());
@@ -94,9 +146,41 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [sortOrder, setSortOrder] = useState(() => {
+    return localStorage.getItem('fileBrowserSort') || 'name-asc';
+  });
 
   // Normalize basePath
   const normalizedBasePath = basePath.startsWith('/') ? basePath : `/${basePath}`;
+
+  // Save sort preference
+  const handleSortChange = (value) => {
+    setSortOrder(value);
+    localStorage.setItem('fileBrowserSort', value);
+  };
+
+  // Sort function
+  const sortItems = useCallback((items) => {
+    const [field, direction] = sortOrder.split('-');
+    const sorted = [...items].sort((a, b) => {
+      // Folders always first
+      if (a.type !== b.type) {
+        return a.type === 'directory' ? -1 : 1;
+      }
+
+      let cmp = 0;
+      if (field === 'name') {
+        cmp = a.basename.localeCompare(b.basename);
+      } else if (field === 'date') {
+        const dateA = a.lastmod ? new Date(a.lastmod).getTime() : 0;
+        const dateB = b.lastmod ? new Date(b.lastmod).getTime() : 0;
+        cmp = dateA - dateB;
+      }
+
+      return direction === 'desc' ? -cmp : cmp;
+    });
+    return sorted;
+  }, [sortOrder]);
 
   // Load root directory on mount or when basePath changes
   useEffect(() => {
@@ -115,13 +199,8 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
 
     try {
       const result = await Meteor.callAsync('webdav.list', dirPath);
-      // Filter out hidden files and sort: folders first, then files
-      const filtered = result
-        .filter(item => !item.basename.startsWith('.'))
-        .sort((a, b) => {
-          if (a.type === b.type) return a.basename.localeCompare(b.basename);
-          return a.type === 'directory' ? -1 : 1;
-        });
+      // Filter out hidden files
+      const filtered = result.filter(item => !item.basename.startsWith('.'));
 
       if (isRoot) {
         setRootItems(filtered);
@@ -189,27 +268,31 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
     setContextMenu(null);
   };
 
-  // Build tree with children
+  // Build tree with children (sorted)
   const getItemWithChildren = (item) => {
     if (item.type === 'directory' && childrenCache.has(item.filename)) {
       return {
         ...item,
-        children: childrenCache.get(item.filename).map(getItemWithChildren)
+        children: sortItems(childrenCache.get(item.filename)).map(getItemWithChildren)
       };
     }
     return item;
   };
 
-  const treeItems = rootItems.map(getItemWithChildren);
+  const treeItems = sortItems(rootItems).map(getItemWithChildren);
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
       <div className="p-2 border-b bg-white flex items-center gap-2">
-        <span className="text-sm font-medium text-gray-700 flex-1">Files</span>
+        <span className="text-sm font-medium text-gray-700 flex-1 flex items-center gap-1">
+          <span>📁</span>
+          <span className="truncate">{normalizedBasePath === '/' ? 'Root' : normalizedBasePath.split('/').pop()}</span>
+        </span>
+        <SortDropdown value={sortOrder} onChange={handleSortChange} />
         <button
           onClick={refresh}
-          className="px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+          className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
           title="Refresh"
         >
           ↻
@@ -219,7 +302,10 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
       {/* Tree */}
       <div className="flex-1 overflow-auto">
         {loading && (
-          <div className="p-4 text-center text-gray-500">Loading...</div>
+          <div className="p-4 flex items-center justify-center gap-2 text-gray-500">
+            <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+            <span className="text-sm">Loading...</span>
+          </div>
         )}
         {error && (
           <div className="p-4 text-center text-red-500">{error}</div>
