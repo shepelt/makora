@@ -60,11 +60,15 @@ async function globalSetup() {
   await waitForService('http://localhost:4080', 10000);
   console.log('WebDAV server ready');
 
-  // Start Meteor app with test settings
+  // Start Meteor app with test settings (separate port and local dir to avoid conflicts with dev server)
   console.log('Starting Meteor app...');
   meteorProcess = spawn('meteor', ['run', '--settings', 'settings-test.json', '--port', '4010'], {
     stdio: 'inherit',
-    detached: true
+    detached: true,
+    env: {
+      ...process.env,
+      METEOR_LOCAL_DIR: '.meteor-test',
+    }
   });
   writeFileSync('/tmp/makora-meteor-test-pid', String(meteorProcess.pid));
 

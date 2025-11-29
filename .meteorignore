@@ -7,3 +7,4 @@ scripts/
 .webdav-test-pid
 .meteor-test-pid
 settings-test.json
+.meteor-test/
