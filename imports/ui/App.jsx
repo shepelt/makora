@@ -203,8 +203,9 @@ function EditorPage() {
         // Encode path segments but keep slashes
         const encodedPath = absolutePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
         // Include auth token for proxy authentication (Meteor stores token in localStorage)
+        // Note: Token is already URL-safe (alphanumeric), no encoding needed
         const token = Meteor._localStorage.getItem('Meteor.loginToken');
-        const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+        const tokenParam = token ? `?token=${token}` : '';
         return `/webdav-proxy${encodedPath}${tokenParam}`;
       };
 
@@ -246,8 +247,11 @@ function EditorPage() {
     const proxyPrefix = `/webdav-proxy${encodedFileDir}/`;
 
     const reverseSrc = (src) => {
+      // Strip query params (like ?token=...) before processing
+      const srcWithoutQuery = src.split('?')[0];
+
       // Decode the src for comparison and output
-      const decodedSrc = decodeURIComponent(src);
+      const decodedSrc = decodeURIComponent(srcWithoutQuery);
       const decodedPrefix = decodeURIComponent(proxyPrefix);
 
       if (decodedSrc.startsWith(decodedPrefix)) {
