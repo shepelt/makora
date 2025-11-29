@@ -21,3 +21,4 @@ settings-test.json
 .webdav-server.js
 .env.test
 .meteor-test/
+.meteor-screenshot/
