@@ -1,7 +1,56 @@
 <head>
   <title>makora</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --color-ivory: #FAFAFA;
+      --color-cream: #F3F3F2;
+      --color-warm-gray: #9A9A98;
+      --color-charcoal: #3C3C3B;
+      --color-accent: #5C5C5A;
+      --color-accent-soft: #7A7A78;
+    }
+    body {
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      background-color: var(--color-ivory);
+      color: var(--color-charcoal);
+    }
+    .font-serif {
+      font-family: 'Crimson Pro', Georgia, serif;
+    }
+    .bg-ivory { background-color: var(--color-ivory); }
+    .bg-cream { background-color: var(--color-cream); }
+    .text-warm-gray { color: var(--color-warm-gray); }
+    .text-charcoal { color: var(--color-charcoal); }
+    .text-terracotta { color: var(--color-accent); }
+    .border-cream { border-color: #E8E8E6; }
+    .bg-terracotta { background-color: var(--color-charcoal); }
+    .hover\:bg-terracotta-dark:hover { background-color: #2C2C2B; }
+
+    /* Subtle paper texture */
+    .paper-texture {
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-blend-mode: soft-light;
+      opacity: 0.03;
+    }
+
+    /* Soft focus states */
+    input:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--color-accent-soft);
+    }
+
+    /* Gentle transitions for interactive elements */
+    button, a, input {
+      transition-property: background-color, border-color, color, box-shadow;
+      transition-duration: 200ms;
+      transition-timing-function: ease-out;
+    }
+  </style>
 </head>
 
 <body>

@@ -1,11 +1,86 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { Meteor } from 'meteor/meteor';
+import { useTracker } from 'meteor/react-meteor-data';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import { WysiwygEditor } from './Editor';
 import { FileBrowser } from './FileBrowser';
 import { SplitPanel } from './SplitPanel';
+import { Login } from './Login';
+import { Settings } from './Settings';
+
+function UserMenu({ onOpenSettings }) {
+  const [open, setOpen] = useState(false);
+  const user = Meteor.user();
+  const menuRef = React.useRef(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  const name = user?.profile?.name || user?.emails?.[0]?.address || 'User';
+  const picture = user?.profile?.picture;
+  const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/50"
+      >
+        {picture ? (
+          <img src={picture} alt="" className="w-6 h-6 rounded-full" />
+        ) : (
+          <div className="w-6 h-6 rounded-full bg-warm-gray/30 flex items-center justify-center text-xs text-charcoal">
+            {initials}
+          </div>
+        )}
+        <span className="text-sm text-charcoal hidden sm:inline">{name.split(' ')[0]}</span>
+        <svg className="w-4 h-4 text-warm-gray" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-lg border border-cream py-1 z-50">
+          <div className="px-3 py-2 border-b border-cream">
+            <p className="text-sm font-medium text-charcoal truncate">{name}</p>
+            <p className="text-xs text-warm-gray truncate">{user?.emails?.[0]?.address}</p>
+          </div>
+          <button
+            onClick={() => { setOpen(false); onOpenSettings?.(); }}
+            className="w-full px-3 py-2 text-left text-sm text-charcoal hover:bg-cream/50"
+          >
+            WebDAV Settings
+          </button>
+          <button
+            onClick={() => { setOpen(false); Meteor.logout(); }}
+            className="w-full px-3 py-2 text-left text-sm text-charcoal hover:bg-cream/50"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Test user for when auth is disabled
+const TEST_USER = {
+  _id: 'test-user-id',
+  emails: [{ address: 'test@example.com', verified: true }],
+  profile: { name: 'Test User' },
+};
 
 function WelcomeScreen() {
   const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
@@ -64,6 +139,7 @@ function EditorPage() {
   const [editorKey, setEditorKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Initialize Turndown for HTML to Markdown conversion
   const turndownService = useMemo(() => {
@@ -208,25 +284,26 @@ function EditorPage() {
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b px-4 py-2 flex items-center shrink-0 z-40">
-        <h1 className="text-xl font-bold text-gray-800">Makora</h1>
-        {selectedFile && (
-          <>
-            <span className="flex-1 text-center text-sm text-gray-500">
-              {loading ? 'Loading...' : selectedFile.basename}
-            </span>
+      <div className="bg-cream border-b border-cream px-4 py-2 flex items-center shrink-0 z-40">
+        <h1 className="font-serif text-xl font-light text-charcoal">Makora</h1>
+        <span className="flex-1 text-center text-sm text-warm-gray">
+          {selectedFile ? (loading ? 'Loading...' : selectedFile.basename) : ''}
+        </span>
+        <div className="flex items-center gap-3">
+          {selectedFile && (
             <button
               onClick={saveFile}
               disabled={loading || saving}
-              className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+              className="px-3 py-1.5 text-sm bg-charcoal text-white rounded-lg hover:bg-charcoal/90 disabled:opacity-50 flex items-center gap-2"
             >
               {saving && (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               )}
               {saving ? 'Saving' : 'Save'}
             </button>
-          </>
-        )}
+          )}
+          <UserMenu onOpenSettings={() => setShowSettings(true)} />
+        </div>
       </div>
 
       {/* Main content */}
@@ -261,16 +338,113 @@ function EditorPage() {
           }
         />
       </div>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" style={{ transition: 'none' }}>
+          <div className="relative w-full max-w-md mx-4" style={{ transition: 'none' }}>
+            <button
+              onClick={() => setShowSettings(false)}
+              className="absolute -top-10 right-0 text-white/80 hover:text-white text-sm"
+            >
+              Close
+            </button>
+            <Settings onSaved={() => setShowSettings(false)} isModal={true} />
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function AuthGate({ children }) {
+  const { user, isLoading, authDisabled } = useTracker(() => {
+    const authDisabled = Meteor.settings?.public?.disableAuth === true;
+
+    if (authDisabled) {
+      return { user: TEST_USER, isLoading: false, authDisabled: true };
+    }
+
+    const loggingIn = Meteor.loggingIn();
+    const user = Meteor.user();
+
+    return {
+      user,
+      isLoading: loggingIn,
+      authDisabled: false,
+    };
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm text-gray-500">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
+
+  return children;
+}
+
+function WebDAVConfigGate({ children }) {
+  const [webdavConfigured, setWebdavConfigured] = useState(null);
+  const [checkKey, setCheckKey] = useState(0);
+  const authDisabled = Meteor.settings?.public?.disableAuth === true;
+
+  useEffect(() => {
+    // In test mode with disableAuth, skip the check (uses global settings fallback)
+    if (authDisabled) {
+      setWebdavConfigured(true);
+      return;
+    }
+    checkWebDAVConfig();
+  }, [checkKey, authDisabled]);
+
+  const checkWebDAVConfig = async () => {
+    try {
+      const settings = await Meteor.callAsync('settings.getWebdav');
+      setWebdavConfigured(settings?.hasPassword === true);
+    } catch (err) {
+      console.error('Failed to check WebDAV config:', err);
+      setWebdavConfigured(false);
+    }
+  };
+
+  if (webdavConfigured === null) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm text-gray-500">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!webdavConfigured) {
+    return <Settings onSaved={() => setCheckKey(k => k + 1)} />;
+  }
+
+  return children;
 }
 
 export function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/*" element={<EditorPage />} />
-      </Routes>
+      <AuthGate>
+        <WebDAVConfigGate>
+          <Routes>
+            <Route path="/*" element={<EditorPage />} />
+          </Routes>
+        </WebDAVConfigGate>
+      </AuthGate>
     </BrowserRouter>
   );
 }

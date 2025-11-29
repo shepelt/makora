@@ -1,5 +1,4 @@
 import { Mongo } from 'meteor/mongo';
 
-// Define your collections here
-// Example:
-// export const ProjectsCollection = new Mongo.Collection('projects');
+// User settings collection - stores per-user WebDAV configuration
+export const UserSettings = new Mongo.Collection('userSettings');

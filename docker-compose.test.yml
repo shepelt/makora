@@ -1,0 +1,12 @@
+services:
+  webdav:
+    image: bytemark/webdav
+    platform: linux/amd64
+    environment:
+      - AUTH_TYPE=Basic
+      - USERNAME=test
+      - PASSWORD=test
+    ports:
+      - "4080:80"
+    volumes:
+      - ./tests/fixtures/webdav:/var/lib/dav/data

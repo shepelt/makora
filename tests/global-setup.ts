@@ -10,6 +10,9 @@ async function globalSetup() {
 
   // Create test settings file first (before any file watching starts)
   const testSettings = {
+    public: {
+      disableAuth: true
+    },
     webdav: {
       url: 'http://localhost:4080',
       username: 'test',

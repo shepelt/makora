@@ -1,6 +1,44 @@
 import { Meteor } from 'meteor/meteor';
+import { Accounts } from 'meteor/accounts-base';
 import { WebApp } from 'meteor/webapp';
+import { ServiceConfiguration } from 'meteor/service-configuration';
 import '/imports/api/server/webdav.js';
+
+// Copy Google profile picture to user.profile on login (so it's available on client)
+Accounts.onLogin(async ({ user }) => {
+  const googlePicture = user?.services?.google?.picture;
+  const currentPicture = user?.profile?.picture;
+
+  if (googlePicture && googlePicture !== currentPicture) {
+    await Meteor.users.updateAsync(user._id, {
+      $set: { 'profile.picture': googlePicture }
+    });
+  }
+});
+
+// Configure Google OAuth
+async function configureGoogleOAuth() {
+  const google = Meteor.settings?.google;
+
+  if (!google?.clientId || !google?.secret) {
+    console.warn('Google OAuth not configured. Add google.clientId and google.secret to settings.');
+    return;
+  }
+
+  // Remove existing config and add new one
+  await ServiceConfiguration.configurations.upsertAsync(
+    { service: 'google' },
+    {
+      $set: {
+        clientId: google.clientId,
+        secret: google.secret,
+        loginStyle: 'popup',
+      },
+    }
+  );
+
+  console.log('Google OAuth configured');
+}
 
 // Image proxy for WebDAV resources
 WebApp.connectHandlers.use('/webdav-proxy', async (req, res) => {
@@ -47,5 +85,6 @@ WebApp.connectHandlers.use('/webdav-proxy', async (req, res) => {
 });
 
 Meteor.startup(async () => {
+  configureGoogleOAuth();
   console.log('Makora server started');
 });
