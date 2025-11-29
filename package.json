@@ -1,0 +1,40 @@
+{
+  "name": "makora",
+  "private": true,
+  "scripts": {
+    "start": "dotenv -- meteor run --settings settings-local.json",
+    "test": "meteor test --once --driver-package meteortesting:mocha --settings settings-local.json",
+    "test:watch": "meteor test --driver-package meteortesting:mocha --settings settings-local.json",
+    "visualize": "meteor --production --extra-packages bundle-visualizer"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.23.5",
+    "@swc/helpers": "^0.5.17",
+    "@tiptap/extension-image": "^3.11.1",
+    "@tiptap/extension-task-item": "^3.11.1",
+    "@tiptap/extension-task-list": "^3.11.1",
+    "@tiptap/markdown": "^3.11.1",
+    "@tiptap/pm": "^3.11.1",
+    "@tiptap/react": "^3.11.1",
+    "@tiptap/starter-kit": "^3.11.1",
+    "marked": "^17.0.1",
+    "meteor-node-stubs": "^1.2.12",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.1",
+    "tiptap-markdown": "^0.9.0",
+    "turndown": "^7.2.2",
+    "webdav": "^5.8.0"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^11.0.0"
+  },
+  "meteor": {
+    "mainModule": {
+      "client": "client/main.jsx",
+      "server": "server/main.js"
+    },
+    "testModule": "tests/main.js",
+    "modern": true
+  }
+}
