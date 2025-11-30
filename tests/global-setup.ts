@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
-import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, cpSync, rmSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 
 let meteorProcess: ChildProcess | null = null;
 let webdavProcess: ChildProcess | null = null;
@@ -26,6 +27,14 @@ async function globalSetup() {
   };
   writeFileSync('settings-test.json', JSON.stringify(testSettings, null, 2));
 
+  // Copy fixtures to temp directory to avoid corrupting source files
+  const tempWebdavDir = resolve(tmpdir(), 'makora-test-webdav');
+  if (existsSync(tempWebdavDir)) {
+    rmSync(tempWebdavDir, { recursive: true });
+  }
+  cpSync('./tests/fixtures/webdav', tempWebdavDir, { recursive: true });
+  console.log(`Copied fixtures to ${tempWebdavDir}`);
+
   // Start Node.js WebDAV server
   console.log('Starting WebDAV server...');
   const webdavScript = `
@@ -43,7 +52,7 @@ async function globalSetup() {
       port: 4080,
       httpAuthentication: new webdav.HTTPBasicAuthentication(userManager, 'Test WebDAV'),
       privilegeManager: privilegeManager,
-      rootFileSystem: new webdav.PhysicalFileSystem('./tests/fixtures/webdav')
+      rootFileSystem: new webdav.PhysicalFileSystem('${tempWebdavDir.replace(/\\/g, '\\\\')}')
     });
 
     server.start(() => console.log('WebDAV server running on port 4080'));

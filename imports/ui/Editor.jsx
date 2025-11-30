@@ -6,6 +6,7 @@ import { Markdown } from 'tiptap-markdown';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Image from '@tiptap/extension-image';
+import { undoDepth, redoDepth } from '@tiptap/pm/history';
 
 // Typora-style keyboard shortcuts
 const TyporaShortcuts = Extension.create({
@@ -45,7 +46,9 @@ const TyporaShortcuts = Extension.create({
 export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = '', onChange, onDirtyChange }, ref) {
   const lastDirtyRef = useRef(false);
   const historyInitializedRef = useRef(false);
-  const savedContentRef = useRef(initialValue);
+  // O(1) dirty tracking using history depth
+  const cleanUndoDepthRef = useRef(0);
+  const cleanRedoDepthRef = useRef(0);
 
   const editor = useEditor({
     extensions: [
@@ -65,29 +68,35 @@ export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = 
         transformPastedText: true,
       }),
     ],
+    // Performance: don't trigger React re-renders on every transaction
+    shouldRerenderOnTransaction: false,
+    // Performance: viewport-relative rendering (from Nextcloud Text)
+    editorProps: {
+      scrollMargin: 50,
+      scrollThreshold: 50,
+    },
     content: initialValue,
     onCreate: ({ editor }) => {
+      // Record initial history state as clean point
+      cleanUndoDepthRef.current = undoDepth(editor.state);
+      cleanRedoDepthRef.current = redoDepth(editor.state);
+      // Initial content callback (only on create, not during typing)
       const content = editor.storage.markdown.getMarkdown();
-      savedContentRef.current = content;
       onChange?.(content);
       onDirtyChange?.(false);
     },
-    onTransaction: ({ editor, transaction }) => {
-      // Update content callback
-      if (transaction.docChanged) {
-        const content = editor.storage.markdown.getMarkdown();
-        onChange?.(content);
-      }
-
-      // Before first input, always clean
+    onTransaction: ({ editor }) => {
+      // Before first input, skip dirty tracking entirely
       if (!historyInitializedRef.current) {
-        onDirtyChange?.(false);
         return;
       }
 
-      // After first input, dirty = content differs from saved content (content-based)
-      const currentContent = editor.storage.markdown.getMarkdown();
-      const isDirty = currentContent !== savedContentRef.current;
+      // O(1) dirty check: compare history depths (no serialization!)
+      const currentUndo = undoDepth(editor.state);
+      const currentRedo = redoDepth(editor.state);
+      const isDirty = currentUndo !== cleanUndoDepthRef.current ||
+                      currentRedo !== cleanRedoDepthRef.current;
+
       if (isDirty !== lastDirtyRef.current) {
         lastDirtyRef.current = isDirty;
         onDirtyChange?.(isDirty);
@@ -100,18 +109,12 @@ export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = 
     if (!editor) return;
 
     const handleKeydown = (e) => {
-      // Clear history before first real input (so initialization doesn't count)
+      // Mark history as initialized on first real input (O(1) - no setContent)
       if (!historyInitializedRef.current && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
         historyInitializedRef.current = true;
-        // Save cursor position before resetting content
-        const { from, to } = editor.state.selection;
-        // Reset state to clear undo history - setContent with same content clears history
-        const currentContent = editor.getHTML();
-        editor.commands.setContent(currentContent, false, { preserveWhitespace: 'full' });
-        // Restore cursor position after setContent (use queueMicrotask to ensure it happens after current sync work)
-        queueMicrotask(() => {
-          editor.commands.setTextSelection({ from, to });
-        });
+        // Update clean point to current state
+        cleanUndoDepthRef.current = undoDepth(editor.state);
+        cleanRedoDepthRef.current = redoDepth(editor.state);
       }
 
       // Handle undo (Ctrl+Z / Cmd+Z) - ensure it triggers properly
@@ -133,16 +136,23 @@ export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = 
     return () => editorElement.removeEventListener('keydown', handleKeydown);
   }, [editor]);
 
-  // Expose markClean method to parent via ref
+  // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     markClean: () => {
       if (editor) {
-        // Update saved content reference without clearing undo history
-        const currentContent = editor.storage.markdown.getMarkdown();
-        savedContentRef.current = currentContent;
+        // Record current history depths as clean point (O(1))
+        cleanUndoDepthRef.current = undoDepth(editor.state);
+        cleanRedoDepthRef.current = redoDepth(editor.state);
         lastDirtyRef.current = false;
         onDirtyChange?.(false);
       }
+    },
+    // Get current content synchronously (for save operations)
+    getContent: () => {
+      if (editor) {
+        return editor.storage.markdown.getMarkdown();
+      }
+      return '';
     },
   }), [editor, onDirtyChange]);
 

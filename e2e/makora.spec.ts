@@ -104,7 +104,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Click in editor and type
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.keyboard.press('End');
     await page.keyboard.type('\n\nNew content added by test');
@@ -146,7 +146,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByText('Test Document').locator('..').getByText(marker)).toBeVisible();
 
     // Additionally check that it's not at the very end by looking at text position
-    const editorContent = await page.locator('.ProseMirror').textContent();
+    const editorContent = await page.locator('.mu-editor').textContent();
     const markerPosition = editorContent?.indexOf(marker) || -1;
     const totalLength = editorContent?.length || 0;
 
@@ -172,7 +172,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByTitle(/save|unsaved/i)).toBeVisible();
   });
 
-  test('undo clears dirty flag when returning to original content', async ({ page }) => {
+  test('undo keeps dirty flag due to redo history (O(1) tracking)', async ({ page }) => {
     await page.goto('/');
     await waitForAppReady(page);
 
@@ -187,7 +187,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByTitle('No unsaved changes')).toBeVisible();
 
     // Type something to make it dirty
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.waitForTimeout(200); // Let editor focus settle
     await page.keyboard.type('X');
@@ -198,8 +198,9 @@ test.describe('Makora Editor', () => {
     // Undo the change
     await page.keyboard.press('Control+z');
 
-    // Should be clean again (no unsaved indicator)
-    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
+    // With O(1) history-based tracking, still shows dirty because redoDepth > 0
+    // This is the expected tradeoff for O(1) performance
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
   });
 
   test('save clears dirty flag', async ({ page }) => {
@@ -217,7 +218,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByTitle('No unsaved changes')).toBeVisible();
 
     // Type something to make it dirty
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.waitForTimeout(200);
     await page.keyboard.type('Y');
@@ -247,7 +248,7 @@ test.describe('Makora Editor', () => {
     await expect(page.getByTitle('No unsaved changes')).toBeVisible();
 
     // Type a unique string to make it dirty
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.keyboard.press('End');
     const uniqueText = 'UNIQUE_TEST_TEXT_12345';
@@ -339,7 +340,7 @@ test.describe.serial('Makora Editing', () => {
     await expect(page.getByText('Bold text')).toBeVisible();
 
     // Add unique content at the end
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.keyboard.press('Control+End');
     const timestamp = Date.now();
@@ -377,7 +378,7 @@ test.describe.serial('Makora Editing', () => {
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
     // Add unique content
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.keyboard.press('Control+End');
     const timestamp = Date.now();
@@ -412,7 +413,7 @@ test.describe.serial('Makora Editing', () => {
     await expect(page.getByText('Bullet point one')).toBeVisible();
 
     // Add new formatted content using bold shortcut
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.keyboard.press('Control+End');
     await page.keyboard.type('\n\n');
@@ -439,6 +440,108 @@ test.describe.serial('Makora Editing', () => {
     await expect(page.getByText('italic text')).toBeVisible();
     await expect(page.getByText("console.log('Hello world')")).toBeVisible();
     await expect(page.getByText('Bullet point one')).toBeVisible();
+  });
+});
+
+test.describe('Makora Performance', () => {
+  test('typing in large file should have low latency', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open the large test file
+    await page.getByText('large-test.md').click();
+    await expect(page.getByText('Large Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Wait for editor to fully initialize
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('End');
+
+    // Measure time to type 20 characters
+    const charCount = 20;
+    const testString = 'PERF_TEST_STRING_123';
+
+    const startTime = Date.now();
+    await page.keyboard.type(testString, { delay: 0 }); // Type as fast as possible
+    const endTime = Date.now();
+
+    // Verify text was typed
+    await expect(page.getByText(testString)).toBeVisible();
+
+    const totalTime = endTime - startTime;
+    const avgTimePerChar = totalTime / charCount;
+
+    console.log(`Typing ${charCount} chars took ${totalTime}ms (avg ${avgTimePerChar.toFixed(1)}ms/char)`);
+
+    // Assert performance: should be under 50ms per character
+    // This is a generous threshold - good performance would be <10ms
+    expect(avgTimePerChar).toBeLessThan(50);
+  });
+
+  test('O(1) dirty tracking - type, save, type, undo stays dirty', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open file
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Initially clean
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible();
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('End');
+
+    // Type first string
+    await page.keyboard.type('AAA');
+    await page.waitForTimeout(200);
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+
+    // Save - should become clean
+    await page.keyboard.press('Control+s');
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
+
+    // Type second string
+    await page.waitForTimeout(500);
+    await page.keyboard.type('BBB');
+    await page.waitForTimeout(200);
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+
+    // Undo - with O(1) tracking, still dirty because redoDepth > 0
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(200);
+
+    // Still shows dirty (this is the O(1) tradeoff)
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+  });
+
+  test('O(1) dirty tracking - save clears dirty after undo', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open file
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('End');
+
+    // Type, undo (still dirty due to redo history)
+    await page.keyboard.type('AAA');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(200);
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+
+    // Save should clear dirty flag (resets history tracking point)
+    await page.keyboard.press('Control+s');
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -490,7 +593,7 @@ test.describe('Makora Images', () => {
     await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
 
     // Should have images rendered (tiptap-markdown may render HTML images differently)
-    const images = page.locator('.ProseMirror img');
+    const images = page.locator('.mu-editor img');
     const count = await images.count();
     expect(count).toBeGreaterThanOrEqual(3);
 
@@ -516,16 +619,16 @@ test.describe('Makora Images', () => {
     expect(naturalHeight).toBeGreaterThan(10);
   });
 
-  test('relative image uses webdav-proxy with token', async ({ page }) => {
+  test('relative image uses image-proxy with token', async ({ page }) => {
     await setupAuthSession(page);
 
     await page.getByText('image-test.md').click();
     await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
 
-    // Check that relative image src is transformed to use proxy with auth token
-    const relativeImage = page.locator('.ProseMirror img').first();
+    // Check that relative image src is transformed to use unified proxy with auth token
+    const relativeImage = page.locator('.mu-editor img').first();
     const src = await relativeImage.getAttribute('src');
-    expect(src).toContain('/webdav-proxy');
+    expect(src).toContain('/image-proxy');
     expect(src).toContain('test-image.jpg');
     expect(src).toContain('?token='); // Must include auth token
   });
@@ -538,9 +641,9 @@ test.describe('Makora Images', () => {
     await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
 
     // Verify the client includes auth token in image URLs (the actual fix)
-    const relativeImage = page.locator('.ProseMirror img').first();
+    const relativeImage = page.locator('.mu-editor img').first();
     const src = await relativeImage.getAttribute('src');
-    expect(src).toContain('/webdav-proxy');
+    expect(src).toContain('/image-proxy');
     expect(src).toContain('?token='); // Client must include auth token
 
     // Verify image actually loads (not 401)
@@ -552,13 +655,38 @@ test.describe('Makora Images', () => {
     expect(naturalHeight).toBeGreaterThan(10);
   });
 
-  test('proxy rejects requests without token', async ({ page, request }) => {
+  test('proxy allows requests when auth disabled (test mode)', async ({ page, request }) => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    // Test proxy WITHOUT token - should return 401
-    const noAuthResponse = await request.get('http://localhost:4010/webdav-proxy/images/test-image.jpg');
-    expect(noAuthResponse.status()).toBe(401);
+    // In test mode (disableAuth: true), proxy should allow requests without token
+    // and use global WebDAV settings
+    const response = await request.get('http://localhost:4010/webdav-proxy/images/test-image.jpg');
+    expect(response.status()).toBe(200);
+  });
+
+  test('unified image-proxy allows external requests when auth disabled (test mode)', async ({ request }) => {
+    // In test mode (disableAuth: true), unified image proxy should allow requests without token
+    // Using placehold.co which returns an SVG image
+    const externalUrl = 'https://placehold.co/600x400/EEE/31343C';
+    // Encode as base64url (URL-safe base64 without padding)
+    const base64url = Buffer.from(externalUrl).toString('base64url');
+    const response = await request.get(`http://localhost:4010/image-proxy/ext/${base64url}`);
+    expect(response.status()).toBe(200);
+
+    // Verify we got an SVG image back
+    const contentType = response.headers()['content-type'];
+    expect(contentType).toContain('image/svg+xml');
+  });
+
+  test('unified image-proxy allows WebDAV requests when auth disabled (test mode)', async ({ request }) => {
+    // In test mode, image-proxy should also work for WebDAV paths
+    const response = await request.get('http://localhost:4010/image-proxy/images/test-image.jpg');
+    expect(response.status()).toBe(200);
+
+    // Verify we got an image back
+    const contentType = response.headers()['content-type'];
+    expect(contentType).toContain('image/');
   });
 
   test('saves images back as markdown format', async ({ page }) => {
@@ -568,7 +696,7 @@ test.describe('Makora Images', () => {
     await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
 
     // Add some text to trigger a change
-    const editor = page.locator('.ProseMirror');
+    const editor = page.locator('.mu-editor');
     await editor.click();
     await page.keyboard.press('Control+End');
     await page.keyboard.type('\n\nEdited image test');
@@ -587,8 +715,27 @@ test.describe('Makora Images', () => {
     expect(savedContent).toContain('](');
 
     // Should NOT have proxy URLs (images should be local paths)
+    expect(savedContent).not.toContain('/image-proxy');
     expect(savedContent).not.toContain('/webdav-proxy');
     // Should have image paths (either relative ./ or absolute /)
     expect(savedContent).toContain('images/test-image.jpg');
+  });
+
+  test('all images load without errors including external URLs', async ({ page }) => {
+    await setupAuthSession(page);
+
+    await page.getByText('image-test.md').click();
+    await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Wait for images to load
+    await page.waitForTimeout(3000);
+
+    // Verify no "Load image failed" text appears
+    const failedImages = page.locator('text=Load image failed');
+    await expect(failedImages).toHaveCount(0);
+
+    // Verify we have actual images rendered (should be 4: relative, absolute, html, external)
+    const images = page.locator('.mu-editor img');
+    await expect(images).toHaveCount(4, { timeout: 10000 });
   });
 });

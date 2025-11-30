@@ -69,13 +69,109 @@ async function getUserFromRequest(req) {
   return user;
 }
 
-// Image proxy for WebDAV resources
-WebApp.connectHandlers.use('/webdav-proxy', async (req, res) => {
-  // Strip query params from path (token is extracted by getUserFromRequest)
+// Unified image proxy for both WebDAV and external resources
+WebApp.connectHandlers.use('/image-proxy', async (req, res) => {
   const parsedUrl = new URL(req.url, 'http://localhost');
-  const imagePath = parsedUrl.pathname; // e.g., /path/to/image.png
+  let externalUrl = parsedUrl.searchParams.get('url');
+  let queryToken = parsedUrl.searchParams.get('token');
+  const imagePath = parsedUrl.pathname; // e.g., /path/to/image.png (after /image-proxy)
 
-  // Proxy ALWAYS requires authentication
+  const authDisabled = Meteor.settings?.public?.disableAuth === true;
+
+  // Legacy support: handle base64-encoded URLs in path (/ext/<base64>/t/<token>)
+  if (imagePath.startsWith('/ext/')) {
+    let base64Part = imagePath.slice(5); // Remove '/ext/'
+    const tokenMatch = base64Part.match(/^([^/]+)\/t\/(.+)$/);
+    if (tokenMatch) {
+      base64Part = tokenMatch[1];
+      queryToken = tokenMatch[2];
+    }
+    try {
+      externalUrl = Buffer.from(base64Part, 'base64url').toString('utf-8');
+    } catch (e) {
+      res.writeHead(400);
+      res.end('Invalid base64 URL encoding');
+      return;
+    }
+  }
+
+  // Handle external URLs
+  if (externalUrl) {
+    // Validate URL is http/https
+    if (!externalUrl.startsWith('http://') && !externalUrl.startsWith('https://')) {
+      res.writeHead(400);
+      res.end('Invalid URL scheme');
+      return;
+    }
+
+    // Require authentication unless auth is disabled
+    if (!authDisabled) {
+      let user = null;
+      // Check query token first
+      if (queryToken) {
+        const hashedToken = Accounts._hashLoginToken(queryToken);
+        user = await Meteor.users.findOneAsync({
+          'services.resume.loginTokens.hashedToken': hashedToken
+        });
+      }
+      // Fall back to request token (cookie/query)
+      if (!user) {
+        user = await getUserFromRequest(req);
+      }
+      if (!user) {
+        res.writeHead(401);
+        res.end('Not authenticated');
+        return;
+      }
+    }
+
+    // Fetch external resource
+    try {
+      const response = await fetch(externalUrl, {
+        headers: { 'User-Agent': 'Makora/1.0' },
+      });
+
+      if (!response.ok) {
+        res.writeHead(response.status);
+        res.end(`Error: ${response.statusText}`);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': contentType });
+
+      const buffer = await response.arrayBuffer();
+      res.end(Buffer.from(buffer));
+    } catch (err) {
+      console.error('External proxy error:', err);
+      res.writeHead(500);
+      res.end('Proxy error');
+    }
+    return;
+  }
+
+  // Handle WebDAV paths
+  // Skip auth check if auth is disabled (test/screenshot mode)
+  if (authDisabled) {
+    const testUserSettings = await UserSettings.findOneAsync({ userId: 'test-user-id' });
+    if (testUserSettings?.webdav) {
+      const { url: webdavUrl, username, password } = testUserSettings.webdav;
+      const baseUrl = webdavUrl.replace(/\/$/, '');
+      const auth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      console.log('Proxy request (auth disabled):', imagePath);
+      return proxyRequest(baseUrl + imagePath, auth, res);
+    }
+    // Fall back to global settings if no test-user settings
+    const settings = Meteor.settings?.webdav || {};
+    if (settings.url && settings.username && settings.password) {
+      const baseUrl = settings.url.replace(/\/$/, '');
+      const auth = 'Basic ' + Buffer.from(`${settings.username}:${settings.password}`).toString('base64');
+      console.log('Proxy request (auth disabled, global settings):', imagePath);
+      return proxyRequest(baseUrl + imagePath, auth, res);
+    }
+  }
+
+  // Proxy requires authentication
   const user = await getUserFromRequest(req);
   const userId = user?._id;
   console.log('Proxy request:', imagePath, 'userId:', userId);
@@ -90,16 +186,62 @@ WebApp.connectHandlers.use('/webdav-proxy', async (req, res) => {
   // Get per-user WebDAV settings
   const userSettings = await UserSettings.findOneAsync({ userId });
   if (!userSettings?.webdav) {
-    // Fall back to global settings in test mode (user is authenticated but no personal settings)
-    const authDisabled = Meteor.settings?.public?.disableAuth === true;
-    if (authDisabled) {
-      const settings = Meteor.settings?.webdav || {};
-      if (settings.url && settings.username && settings.password) {
-        const baseUrl = settings.url.replace(/\/$/, '');
-        const auth = 'Basic ' + Buffer.from(`${settings.username}:${settings.password}`).toString('base64');
-        return proxyRequest(baseUrl + imagePath, auth, res);
-      }
+    res.writeHead(500);
+    res.end('WebDAV not configured');
+    return;
+  }
+
+  const { url: webdavUrl, username, password } = userSettings.webdav;
+  const baseUrl = webdavUrl.replace(/\/$/, '');
+  const auth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+
+  await proxyRequest(baseUrl + imagePath, auth, res);
+});
+
+// Legacy WebDAV proxy (for backwards compatibility)
+WebApp.connectHandlers.use('/webdav-proxy', async (req, res) => {
+  // Strip query params from path (token is extracted by getUserFromRequest)
+  const parsedUrl = new URL(req.url, 'http://localhost');
+  const imagePath = parsedUrl.pathname; // e.g., /path/to/image.png
+
+  const authDisabled = Meteor.settings?.public?.disableAuth === true;
+
+  // Skip auth check if auth is disabled (test/screenshot mode)
+  // Use test-user-id's settings from database
+  if (authDisabled) {
+    const testUserSettings = await UserSettings.findOneAsync({ userId: 'test-user-id' });
+    if (testUserSettings?.webdav) {
+      const { url: webdavUrl, username, password } = testUserSettings.webdav;
+      const baseUrl = webdavUrl.replace(/\/$/, '');
+      const auth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      console.log('Proxy request (auth disabled):', imagePath);
+      return proxyRequest(baseUrl + imagePath, auth, res);
     }
+    // Fall back to global settings if no test-user settings
+    const settings = Meteor.settings?.webdav || {};
+    if (settings.url && settings.username && settings.password) {
+      const baseUrl = settings.url.replace(/\/$/, '');
+      const auth = 'Basic ' + Buffer.from(`${settings.username}:${settings.password}`).toString('base64');
+      console.log('Proxy request (auth disabled, global settings):', imagePath);
+      return proxyRequest(baseUrl + imagePath, auth, res);
+    }
+  }
+
+  // Proxy requires authentication
+  const user = await getUserFromRequest(req);
+  const userId = user?._id;
+  console.log('Proxy request:', imagePath, 'userId:', userId);
+
+  if (!userId) {
+    console.log('Proxy: Not authenticated, no userId found');
+    res.writeHead(401);
+    res.end('Not authenticated');
+    return;
+  }
+
+  // Get per-user WebDAV settings
+  const userSettings = await UserSettings.findOneAsync({ userId });
+  if (!userSettings?.webdav) {
     res.writeHead(500);
     res.end('WebDAV not configured');
     return;
@@ -138,6 +280,60 @@ async function proxyRequest(fullUrl, auth, res) {
     res.end('Proxy error');
   }
 }
+
+// External image proxy (for CORS-restricted images)
+WebApp.connectHandlers.use('/external-proxy', async (req, res) => {
+  const parsedUrl = new URL(req.url, 'http://localhost');
+  const externalUrl = parsedUrl.searchParams.get('url');
+
+  if (!externalUrl) {
+    res.writeHead(400);
+    res.end('Missing url parameter');
+    return;
+  }
+
+  // Validate URL is http/https
+  if (!externalUrl.startsWith('http://') && !externalUrl.startsWith('https://')) {
+    res.writeHead(400);
+    res.end('Invalid URL scheme');
+    return;
+  }
+
+  // Require authentication to prevent abuse (unless auth is disabled for testing)
+  const authDisabled = Meteor.settings?.public?.disableAuth === true;
+  if (!authDisabled) {
+    const user = await getUserFromRequest(req);
+    if (!user) {
+      res.writeHead(401);
+      res.end('Not authenticated');
+      return;
+    }
+  }
+
+  try {
+    const response = await fetch(externalUrl, {
+      headers: {
+        'User-Agent': 'Makora/1.0',
+      },
+    });
+
+    if (!response.ok) {
+      res.writeHead(response.status);
+      res.end(`Error: ${response.statusText}`);
+      return;
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': contentType });
+
+    const buffer = await response.arrayBuffer();
+    res.end(Buffer.from(buffer));
+  } catch (err) {
+    console.error('External proxy error:', err);
+    res.writeHead(500);
+    res.end('Proxy error');
+  }
+});
 
 Meteor.startup(async () => {
   configureGoogleOAuth();
