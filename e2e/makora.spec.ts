@@ -113,6 +113,50 @@ test.describe('Makora Editor', () => {
     await expect(page.getByText('New content added by test')).toBeVisible();
   });
 
+  test('typing inserts at cursor position not at end (issue #14)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Wait for editor to initialize
+    await page.waitForTimeout(500);
+
+    // Click in the middle of the document (specifically after "Test Document" heading)
+    const testDocHeading = page.getByRole('heading', { name: 'Test Document' });
+    await testDocHeading.click();
+
+    // Move cursor to end of the heading
+    await page.keyboard.press('End');
+
+    // Wait a bit for cursor position to settle
+    await page.waitForTimeout(200);
+
+    // Type a unique marker that should appear right after the heading
+    const marker = 'INSERTED_HERE';
+    await page.keyboard.type(marker);
+
+    // Wait for content to update
+    await page.waitForTimeout(100);
+
+    // Verify the marker appears right after the heading (not at the end)
+    // The marker should be visible immediately after "Test Document"
+    await expect(page.getByText('Test Document').locator('..').getByText(marker)).toBeVisible();
+
+    // Additionally check that it's not at the very end by looking at text position
+    const editorContent = await page.locator('.ProseMirror').textContent();
+    const markerPosition = editorContent?.indexOf(marker) || -1;
+    const totalLength = editorContent?.length || 0;
+
+    // If cursor position is preserved, marker should NOT be at the end
+    // If bug exists, marker will be in the last 10% of content (close to the end)
+    expect(markerPosition).toBeGreaterThan(0);
+    // Marker should be before the last 50% of content (conservative check)
+    expect(markerPosition).toBeLessThan(totalLength * 0.5);
+  });
+
   test('shows save button when file is open', async ({ page }) => {
     await page.goto('/');
     await waitForAppReady(page);

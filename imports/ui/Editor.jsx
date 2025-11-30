@@ -103,9 +103,15 @@ export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = 
       // Clear history before first real input (so initialization doesn't count)
       if (!historyInitializedRef.current && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
         historyInitializedRef.current = true;
+        // Save cursor position before resetting content
+        const { from, to } = editor.state.selection;
         // Reset state to clear undo history - setContent with same content clears history
         const currentContent = editor.getHTML();
         editor.commands.setContent(currentContent, false, { preserveWhitespace: 'full' });
+        // Restore cursor position after setContent (use queueMicrotask to ensure it happens after current sync work)
+        queueMicrotask(() => {
+          editor.commands.setTextSelection({ from, to });
+        });
       }
 
       // Handle undo (Ctrl+Z / Cmd+Z) - ensure it triggers properly
