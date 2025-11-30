@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import { WysiwygEditor } from './Editor';
+import { MuyaEditor } from './MuyaEditor';
 import { FileBrowser } from './FileBrowser';
 import { SplitPanel } from './SplitPanel';
 import { Login } from './Login';
@@ -188,16 +188,28 @@ function EditorPage() {
 
     try {
       const fileContent = await Meteor.callAsync('webdav.read', filePath);
-      console.log('Got content, length:', fileContent?.length);
+      // Normalize CRLF to LF - Muya parser doesn't handle Windows line endings well
+      const normalizedContent = fileContent?.replace(/\r\n/g, '\n') || '';
+      console.log('Got content, length:', normalizedContent?.length);
       const basename = filePath.split('/').pop();
       const dir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
       setSelectedFile({ filename: filePath, basename });
       setFileDir(dir);
 
       const transformSrc = (src) => {
-        // Skip absolute URLs
-        if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/webdav-proxy')) {
-          return src;
+        const token = Meteor._localStorage.getItem('Meteor.loginToken');
+        const tokenParam = token ? `?token=${token}` : '';
+
+        // Route external URLs through proxy with query params
+        if (src.startsWith('http://') || src.startsWith('https://')) {
+          const params = new URLSearchParams();
+          params.set('url', src);
+          if (token) params.set('token', token);
+          return `${window.location.origin}/image-proxy?${params.toString()}`;
+        }
+        // Skip if already a proxy URL (but ensure it's absolute for Muya)
+        if (src.startsWith('/image-proxy') || src.startsWith('/webdav-proxy') || src.startsWith('/external-proxy')) {
+          return window.location.origin + src;
         }
         // Decode URL-encoded paths and resolve relative path
         const decodedSrc = decodeURIComponent(src);
@@ -205,14 +217,11 @@ function EditorPage() {
         const absolutePath = `${dir}/${cleanSrc}`.replace(/\/+/g, '/');
         // Encode path segments but keep slashes
         const encodedPath = absolutePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
-        // Include auth token for proxy authentication (Meteor stores token in localStorage)
-        // Note: Token is already URL-safe (alphanumeric), no encoding needed
-        const token = Meteor._localStorage.getItem('Meteor.loginToken');
-        const tokenParam = token ? `?token=${token}` : '';
-        return `/webdav-proxy${encodedPath}${tokenParam}`;
+        // Use unified proxy for WebDAV paths too
+        return `${window.location.origin}/image-proxy${encodedPath}${tokenParam}`;
       };
 
-      let transformedContent = fileContent
+      let transformedContent = normalizedContent
         // Convert HTML img tags to markdown syntax first
         .replace(/<img\s+[^>]*?src=["']([^"']+)["'][^>]*?alt=["']([^"']*)["'][^>]*>/gi, (match, src, alt) => {
           return `![${alt}](${transformSrc(src)})`;
@@ -226,12 +235,15 @@ function EditorPage() {
         })
         // Transform markdown images: ![alt](src)
         .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
-          // Only transform if not already transformed
-          if (src.startsWith('/webdav-proxy')) return match;
+          // Only transform if not already transformed (check both relative and absolute proxy URLs)
+          if (src.startsWith('/image-proxy') || src.startsWith('/webdav-proxy') || src.startsWith('/external-proxy') ||
+              src.includes('/image-proxy') || src.includes('/webdav-proxy') || src.includes('/external-proxy')) {
+            return match;
+          }
           return `![${alt}](${transformSrc(src)})`;
         });
 
-      // Pass raw markdown to editor - tiptap-markdown handles parsing
+      // Pass raw markdown to editor - Muya handles parsing
       // Store the transformed content temporarily for the editor to use on mount
       pendingContentRef.current = transformedContent;
       setEditorKey(k => k + 1);
@@ -248,18 +260,73 @@ function EditorPage() {
   const prepareForSave = (text) => {
     // Encode fileDir segments for comparison
     const encodedFileDir = fileDir.split('/').map(segment => encodeURIComponent(segment)).join('/');
-    const proxyPrefix = `/webdav-proxy${encodedFileDir}/`;
+    const imageProxyPrefix = `/image-proxy${encodedFileDir}/`;
+    const webdavProxyPrefix = `/webdav-proxy${encodedFileDir}/`;
 
     const reverseSrc = (src) => {
+      // Handle external URLs via unified image-proxy with base64url encoding
+      try {
+        const url = new URL(src);
+        // Check for /image-proxy/ext/<base64url> format
+        if (url.pathname.includes('/image-proxy/ext/')) {
+          const base64Part = url.pathname.split('/image-proxy/ext/')[1];
+          if (base64Part) {
+            // Decode base64url back to original URL
+            const padded = base64Part.replace(/-/g, '+').replace(/_/g, '/');
+            const originalUrl = atob(padded);
+            return originalUrl;
+          }
+        }
+        // Also handle query param format (legacy)
+        if (url.pathname === '/image-proxy' || url.pathname.endsWith('/image-proxy')) {
+          const originalUrl = url.searchParams.get('url');
+          if (originalUrl) {
+            return originalUrl;
+          }
+        }
+        // Also handle legacy external-proxy URLs
+        if (url.pathname === '/external-proxy' || url.pathname.endsWith('/external-proxy')) {
+          const originalUrl = url.searchParams.get('url');
+          if (originalUrl) {
+            return originalUrl;
+          }
+        }
+      } catch (e) {
+        // Not a valid URL, continue processing
+      }
+
       // Strip query params (like ?token=...) before processing
       const srcWithoutQuery = src.split('?')[0];
 
-      // Decode the src for comparison and output
-      const decodedSrc = decodeURIComponent(srcWithoutQuery);
-      const decodedPrefix = decodeURIComponent(proxyPrefix);
+      // Strip origin if present (we now use absolute URLs for Muya compatibility)
+      let cleanSrc = srcWithoutQuery;
+      try {
+        const url = new URL(srcWithoutQuery);
+        // If it's from the same origin, strip it
+        if (url.origin === window.location.origin) {
+          cleanSrc = url.pathname;
+        }
+      } catch (e) {
+        // Not a valid URL, use as-is
+      }
 
-      if (decodedSrc.startsWith(decodedPrefix)) {
-        return './' + decodedSrc.slice(decodedPrefix.length);
+      // Decode the src for comparison and output
+      const decodedSrc = decodeURIComponent(cleanSrc);
+      const decodedImageProxyPrefix = decodeURIComponent(imageProxyPrefix);
+      const decodedWebdavProxyPrefix = decodeURIComponent(webdavProxyPrefix);
+
+      // Handle unified image-proxy paths
+      if (decodedSrc.startsWith(decodedImageProxyPrefix)) {
+        return './' + decodedSrc.slice(decodedImageProxyPrefix.length);
+      }
+      if (decodedSrc.startsWith('/image-proxy/')) {
+        // Absolute path within image-proxy - keep as relative from root
+        return decodedSrc.slice('/image-proxy'.length);
+      }
+
+      // Handle legacy webdav-proxy paths
+      if (decodedSrc.startsWith(decodedWebdavProxyPrefix)) {
+        return './' + decodedSrc.slice(decodedWebdavProxyPrefix.length);
       }
       if (decodedSrc.startsWith('/webdav-proxy/')) {
         // Absolute path within webdav - keep as relative from root
@@ -279,9 +346,10 @@ function EditorPage() {
 
     setSaving(true);
     try {
-      // content is already markdown from tiptap-markdown
+      // Get content synchronously from editor (not debounced state)
+      const currentContent = editorRef.current?.getContent() || content;
       // Just restore relative image paths
-      const saveContent = prepareForSave(content);
+      const saveContent = prepareForSave(currentContent);
       await Meteor.callAsync('webdav.write', selectedFile.filename, saveContent);
       console.log('File saved successfully');
       // Mark editor as clean after successful save
@@ -353,7 +421,7 @@ function EditorPage() {
                     </div>
                   </div>
                 )}
-                <WysiwygEditor
+                <MuyaEditor
                   ref={editorRef}
                   key={editorKey}
                   initialValue={pendingContentRef.current}
