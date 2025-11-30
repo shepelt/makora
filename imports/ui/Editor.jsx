@@ -45,6 +45,7 @@ const TyporaShortcuts = Extension.create({
 export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = '', onChange, onDirtyChange }, ref) {
   const lastDirtyRef = useRef(false);
   const historyInitializedRef = useRef(false);
+  const savedContentRef = useRef(initialValue);
 
   const editor = useEditor({
     extensions: [
@@ -67,6 +68,7 @@ export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = 
     content: initialValue,
     onCreate: ({ editor }) => {
       const content = editor.storage.markdown.getMarkdown();
+      savedContentRef.current = content;
       onChange?.(content);
       onDirtyChange?.(false);
     },
@@ -83,11 +85,12 @@ export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = 
         return;
       }
 
-      // After first input, dirty = can undo (history-based)
-      const canUndo = editor.can().undo();
-      if (canUndo !== lastDirtyRef.current) {
-        lastDirtyRef.current = canUndo;
-        onDirtyChange?.(canUndo);
+      // After first input, dirty = content differs from saved content (content-based)
+      const currentContent = editor.storage.markdown.getMarkdown();
+      const isDirty = currentContent !== savedContentRef.current;
+      if (isDirty !== lastDirtyRef.current) {
+        lastDirtyRef.current = isDirty;
+        onDirtyChange?.(isDirty);
       }
     },
   });
@@ -128,10 +131,9 @@ export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = 
   useImperativeHandle(ref, () => ({
     markClean: () => {
       if (editor) {
-        // Reset editor state to clear history while preserving content
-        // This is the official ProseMirror approach per https://github.com/ueberdosis/tiptap/issues/491
-        const currentContent = editor.getHTML();
-        editor.commands.setContent(currentContent, false, { preserveWhitespace: 'full' });
+        // Update saved content reference without clearing undo history
+        const currentContent = editor.storage.markdown.getMarkdown();
+        savedContentRef.current = currentContent;
         lastDirtyRef.current = false;
         onDirtyChange?.(false);
       }

@@ -188,6 +188,44 @@ test.describe('Makora Editor', () => {
     await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
   });
 
+  test('preserves undo history after save (like VS Code)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open file
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Wait for editor to initialize
+    await page.waitForTimeout(500);
+
+    // Initially clean
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible();
+
+    // Type a unique string to make it dirty
+    const editor = page.locator('.ProseMirror');
+    await editor.click();
+    await page.keyboard.press('End');
+    const uniqueText = 'UNIQUE_TEST_TEXT_12345';
+    await page.keyboard.type(uniqueText);
+
+    // Should be dirty (this confirms text was entered)
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+
+    // Save the file
+    await page.keyboard.press('Control+s');
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
+
+    // CRITICAL TEST: undo after save should still work (preserves history)
+    await page.keyboard.press('Control+z');
+
+    // After undo, the unique text should be gone
+    await expect(page.getByText(uniqueText, { exact: true })).not.toBeVisible();
+
+    // And the file should be dirty again (content differs from saved version)
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+  });
+
   test('context menu opens on right-click directory', async ({ page }) => {
     await page.goto('/');
     await waitForAppReady(page);
