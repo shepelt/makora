@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import { marked } from 'marked';
-import TurndownService from 'turndown';
 import { WysiwygEditor } from './Editor';
 import { FileBrowser } from './FileBrowser';
 import { SplitPanel } from './SplitPanel';
@@ -161,15 +159,6 @@ function EditorPage() {
     loadBasePath();
   }, []);
 
-  // Initialize Turndown for HTML to Markdown conversion
-  const turndownService = useMemo(() => {
-    const service = new TurndownService({
-      headingStyle: 'atx',
-      codeBlockStyle: 'fenced',
-      bulletListMarker: '-',
-    });
-    return service;
-  }, []);
 
   // Load file from URL on mount or when file param changes
   useEffect(() => {
@@ -213,7 +202,11 @@ function EditorPage() {
         const absolutePath = `${dir}/${cleanSrc}`.replace(/\/+/g, '/');
         // Encode path segments but keep slashes
         const encodedPath = absolutePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
-        return `/webdav-proxy${encodedPath}`;
+        // Include auth token for proxy authentication (Meteor stores token in localStorage)
+        // Note: Token is already URL-safe (alphanumeric), no encoding needed
+        const token = Meteor._localStorage.getItem('Meteor.loginToken');
+        const tokenParam = token ? `?token=${token}` : '';
+        return `/webdav-proxy${encodedPath}${tokenParam}`;
       };
 
       let transformedContent = fileContent
@@ -235,9 +228,8 @@ function EditorPage() {
           return `![${alt}](${transformSrc(src)})`;
         });
 
-      // Convert markdown to HTML for the editor
-      const htmlContent = await marked.parse(transformedContent);
-      setContent(htmlContent);
+      // Pass raw markdown to editor - tiptap-markdown handles parsing
+      setContent(transformedContent);
       setEditorKey(k => k + 1);
     } catch (err) {
       console.error('Failed to load file:', err);
@@ -255,8 +247,11 @@ function EditorPage() {
     const proxyPrefix = `/webdav-proxy${encodedFileDir}/`;
 
     const reverseSrc = (src) => {
+      // Strip query params (like ?token=...) before processing
+      const srcWithoutQuery = src.split('?')[0];
+
       // Decode the src for comparison and output
-      const decodedSrc = decodeURIComponent(src);
+      const decodedSrc = decodeURIComponent(srcWithoutQuery);
       const decodedPrefix = decodeURIComponent(proxyPrefix);
 
       if (decodedSrc.startsWith(decodedPrefix)) {
@@ -280,10 +275,9 @@ function EditorPage() {
 
     setSaving(true);
     try {
-      // Convert HTML to Markdown first
-      const markdownContent = turndownService.turndown(content);
-      // Then restore relative image paths
-      const saveContent = prepareForSave(markdownContent);
+      // content is already markdown from tiptap-markdown
+      // Just restore relative image paths
+      const saveContent = prepareForSave(content);
       await Meteor.callAsync('webdav.write', selectedFile.filename, saveContent);
       console.log('File saved successfully');
     } catch (err) {

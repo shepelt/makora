@@ -115,6 +115,120 @@ function parseWebDAVResponse(xml, basePath) {
 }
 
 Meteor.methods({
+  // Debug: Clear test user settings (so tests use global settings from settings-test.json)
+  // Only works when disableAuth is true
+  async 'debug.clearTestUserSettings'() {
+    const authDisabled = Meteor.settings?.public?.disableAuth === true;
+    if (!authDisabled) {
+      throw new Meteor.Error('not-allowed', 'Debug methods only available in test mode');
+    }
+
+    await UserSettings.removeAsync({ userId: 'test-user-id' });
+    return { success: true };
+  },
+
+  // Debug: Create a test user with a known login token for testing proxy authentication
+  // Returns the token that should be used as meteor_login_token cookie
+  // Only works when disableAuth is true
+  async 'debug.createTestUserWithToken'() {
+    const authDisabled = Meteor.settings?.public?.disableAuth === true;
+    if (!authDisabled) {
+      throw new Meteor.Error('not-allowed', 'Debug methods only available in test mode');
+    }
+
+    const { Accounts } = require('meteor/accounts-base');
+
+    // Create or update test user
+    const testUserId = 'e2e-test-user';
+    const existingUser = await Meteor.users.findOneAsync({ _id: testUserId });
+
+    if (!existingUser) {
+      await Meteor.users.insertAsync({
+        _id: testUserId,
+        emails: [{ address: 'e2e-test@example.com', verified: true }],
+        services: { resume: { loginTokens: [] } },
+      });
+    }
+
+    // Generate a login token
+    const stampedToken = Accounts._generateStampedLoginToken();
+    const hashedToken = Accounts._hashLoginToken(stampedToken.token);
+
+    // Store the hashed token
+    await Meteor.users.updateAsync(testUserId, {
+      $push: {
+        'services.resume.loginTokens': {
+          hashedToken,
+          when: stampedToken.when,
+        },
+      },
+    });
+
+    // Set up WebDAV settings for this test user (use the global test settings)
+    const settings = Meteor.settings?.webdav || {};
+    if (settings.url && settings.username && settings.password) {
+      await UserSettings.upsertAsync(
+        { userId: testUserId },
+        {
+          $set: {
+            userId: testUserId,
+            webdav: {
+              url: settings.url,
+              username: settings.username,
+              password: settings.password,
+            },
+            updatedAt: new Date(),
+          },
+          $setOnInsert: { createdAt: new Date() },
+        }
+      );
+    }
+
+    // Return the unhashed token (this is what goes in the cookie)
+    return { token: stampedToken.token, userId: testUserId };
+  },
+
+  // Debug: Copy WebDAV settings from a user (by email) to test-user-id
+  // Only works when disableAuth is true
+  async 'debug.useSettingsFromEmail'(email) {
+    const authDisabled = Meteor.settings?.public?.disableAuth === true;
+    if (!authDisabled) {
+      throw new Meteor.Error('not-allowed', 'Debug methods only available in test mode');
+    }
+
+    // Find user by email (check both standard emails and Google OAuth)
+    let user = await Meteor.users.findOneAsync({ 'emails.address': email });
+    if (!user) {
+      user = await Meteor.users.findOneAsync({ 'services.google.email': email });
+    }
+    if (!user) {
+      throw new Meteor.Error('user-not-found', `No user found with email: ${email}`);
+    }
+
+    // Get their settings
+    const userSettings = await UserSettings.findOneAsync({ userId: user._id });
+    if (!userSettings?.webdav) {
+      throw new Meteor.Error('no-settings', 'User has no WebDAV settings configured');
+    }
+
+    // Copy to test-user-id
+    await UserSettings.upsertAsync(
+      { userId: 'test-user-id' },
+      {
+        $set: {
+          userId: 'test-user-id',
+          webdav: userSettings.webdav,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          createdAt: new Date(),
+        },
+      }
+    );
+
+    return { success: true, url: userSettings.webdav.url };
+  },
+
   // Get current user's WebDAV settings (without password)
   async 'settings.getWebdav'() {
     const authDisabled = Meteor.settings?.public?.disableAuth === true;
@@ -387,6 +501,51 @@ Meteor.methods({
     } catch (err) {
       throw new Meteor.Error('webdav-error', err.message);
     }
+  },
+
+  // Debug: Read raw file content and show around a search term
+  async 'debug.inspectMarkdown'(path, searchTerm) {
+    const authDisabled = Meteor.settings?.public?.disableAuth === true;
+    if (!authDisabled) {
+      throw new Meteor.Error('not-allowed', 'Debug methods only available in test mode');
+    }
+
+    const { baseUrl, auth } = await getConfig();
+    const url = baseUrl + (path.startsWith('/') ? path : '/' + path);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': auth },
+    });
+
+    if (!response.ok) {
+      throw new Meteor.Error('fetch-failed', `HTTP ${response.status}`);
+    }
+
+    const markdown = await response.text();
+    const lines = markdown.split('\n');
+
+    // Find the search term
+    let startIdx = lines.findIndex(l => l.includes(searchTerm));
+    if (startIdx === -1) {
+      return { error: `Term "${searchTerm}" not found`, firstLines: lines.slice(0, 50) };
+    }
+
+    // Get context with visible whitespace
+    const contextLines = lines.slice(Math.max(0, startIdx - 3), startIdx + 40);
+    const visualLines = contextLines.map((line, i) => {
+      const lineNum = Math.max(0, startIdx - 3) + i + 1;
+      const visual = line
+        .replace(/\t/g, '→')
+        .replace(/ /g, '·');
+      return `${lineNum}: ${visual}`;
+    });
+
+    return {
+      rawContext: contextLines,
+      visualContext: visualLines,
+      foundAtLine: startIdx + 1
+    };
   },
 
   async 'webdav.write'(path, content) {

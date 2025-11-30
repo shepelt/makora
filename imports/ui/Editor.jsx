@@ -58,12 +58,13 @@ export function WysiwygEditor({ initialValue = '', onChange }) {
       Markdown.configure({
         html: true,
         transformCopiedText: true,
+        transformPastedText: true,
       }),
     ],
-    content: initialValue, // Expects HTML from marked
+    content: initialValue, // Raw markdown - tiptap-markdown handles parsing
     onUpdate: ({ editor }) => {
-      // Always output HTML - we use Turndown for markdown conversion on save
-      onChange?.(editor.getHTML());
+      // Output markdown directly via tiptap-markdown
+      onChange?.(editor.storage.markdown.getMarkdown());
     },
   });
 

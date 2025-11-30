@@ -20,3 +20,5 @@ settings-test.json
 .webdav-test-pid
 .webdav-server.js
 .env.test
+.meteor-test/
+.meteor-screenshot/

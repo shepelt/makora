@@ -84,6 +84,30 @@ The E2E test suite:
 - Test fixtures in `/tests/fixtures/webdav/`
 - Global setup/teardown in `/tests/global-setup.ts` and `/tests/global-teardown.ts`
 
+### Red-Green Testing (Critical)
+When fixing bugs or adding features, **always verify the test fails before applying the fix**:
+
+1. **RED**: Write/update test that should catch the bug → run it → confirm it **fails**
+2. **GREEN**: Apply the fix → run test again → confirm it **passes**
+
+**Why this matters:**
+- A test that passes both before and after a fix proves nothing
+- Tests must exercise the actual code path, not an artificial bypass
+- E2E tests should mimic real user behavior (e.g., use localStorage like Meteor does, not artificial cookie injection)
+
+**Anti-pattern example:**
+```javascript
+// BAD: Artificially setting a cookie that the real app never sets
+await page.context().addCookies([{ name: 'auth_token', value: token }]);
+
+// GOOD: Set auth the same way the real app does
+await page.evaluate((token) => {
+  localStorage.setItem('Meteor.loginToken', token);
+}, token);
+```
+
+If you can't make the test fail first, the test is likely not testing what you think it's testing.
+
 ## Development Philosophy
 
 ### Start Simple, Grow Naturally
