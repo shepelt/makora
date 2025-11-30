@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Extension } from '@tiptap/core';
@@ -42,7 +42,10 @@ const TyporaShortcuts = Extension.create({
   },
 });
 
-export function WysiwygEditor({ initialValue = '', onChange }) {
+export const WysiwygEditor = forwardRef(function WysiwygEditor({ initialValue = '', onChange, onDirtyChange }, ref) {
+  const lastDirtyRef = useRef(false);
+  const historyInitializedRef = useRef(false);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -61,12 +64,79 @@ export function WysiwygEditor({ initialValue = '', onChange }) {
         transformPastedText: true,
       }),
     ],
-    content: initialValue, // Raw markdown - tiptap-markdown handles parsing
-    onUpdate: ({ editor }) => {
-      // Output markdown directly via tiptap-markdown
-      onChange?.(editor.storage.markdown.getMarkdown());
+    content: initialValue,
+    onCreate: ({ editor }) => {
+      const content = editor.storage.markdown.getMarkdown();
+      onChange?.(content);
+      onDirtyChange?.(false);
+    },
+    onTransaction: ({ editor, transaction }) => {
+      // Update content callback
+      if (transaction.docChanged) {
+        const content = editor.storage.markdown.getMarkdown();
+        onChange?.(content);
+      }
+
+      // Before first input, always clean
+      if (!historyInitializedRef.current) {
+        onDirtyChange?.(false);
+        return;
+      }
+
+      // After first input, dirty = can undo (history-based)
+      const canUndo = editor.can().undo();
+      if (canUndo !== lastDirtyRef.current) {
+        lastDirtyRef.current = canUndo;
+        onDirtyChange?.(canUndo);
+      }
     },
   });
+
+  // Initialize dirty tracking on first user input and handle undo/redo
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleKeydown = (e) => {
+      // Clear history before first real input (so initialization doesn't count)
+      if (!historyInitializedRef.current && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
+        historyInitializedRef.current = true;
+        // Reset state to clear undo history - setContent with same content clears history
+        const currentContent = editor.getHTML();
+        editor.commands.setContent(currentContent, false, { preserveWhitespace: 'full' });
+      }
+
+      // Handle undo (Ctrl+Z / Cmd+Z) - ensure it triggers properly
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        editor.commands.undo();
+      }
+
+      // Handle redo (Ctrl+Shift+Z / Cmd+Shift+Z or Ctrl+Y)
+      if (((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) || (e.ctrlKey && e.key === 'y')) {
+        e.preventDefault();
+        editor.commands.redo();
+      }
+    };
+
+    const editorElement = editor.view.dom;
+    editorElement.addEventListener('keydown', handleKeydown, { capture: true });
+
+    return () => editorElement.removeEventListener('keydown', handleKeydown);
+  }, [editor]);
+
+  // Expose markClean method to parent via ref
+  useImperativeHandle(ref, () => ({
+    markClean: () => {
+      if (editor) {
+        // Reset editor state to clear history while preserving content
+        // This is the official ProseMirror approach per https://github.com/ueberdosis/tiptap/issues/491
+        const currentContent = editor.getHTML();
+        editor.commands.setContent(currentContent, false, { preserveWhitespace: 'full' });
+        lastDirtyRef.current = false;
+        onDirtyChange?.(false);
+      }
+    },
+  }), [editor, onDirtyChange]);
 
   return (
     <div className="tiptap-editor">
@@ -191,4 +261,4 @@ export function WysiwygEditor({ initialValue = '', onChange }) {
       `}</style>
     </div>
   );
-}
+});

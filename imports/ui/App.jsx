@@ -138,6 +138,9 @@ function EditorPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const editorRef = React.useRef(null);
+  const pendingContentRef = React.useRef('');
 
   // Load saved basePath into URL on mount (if no path param already)
   useEffect(() => {
@@ -229,7 +232,8 @@ function EditorPage() {
         });
 
       // Pass raw markdown to editor - tiptap-markdown handles parsing
-      setContent(transformedContent);
+      // Store the transformed content temporarily for the editor to use on mount
+      pendingContentRef.current = transformedContent;
       setEditorKey(k => k + 1);
     } catch (err) {
       console.error('Failed to load file:', err);
@@ -280,6 +284,8 @@ function EditorPage() {
       const saveContent = prepareForSave(content);
       await Meteor.callAsync('webdav.write', selectedFile.filename, saveContent);
       console.log('File saved successfully');
+      // Mark editor as clean after successful save
+      editorRef.current?.markClean();
     } catch (err) {
       console.error('Failed to save file:', err);
     } finally {
@@ -308,12 +314,19 @@ function EditorPage() {
             <button
               onClick={saveFile}
               disabled={loading || saving}
-              className="px-3 py-1.5 text-sm bg-charcoal text-white rounded-lg hover:bg-charcoal/90 disabled:opacity-50 flex items-center gap-2"
+              className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+              title={isDirty ? 'Save changes (Ctrl+S)' : 'No unsaved changes'}
             >
-              {saving && (
-                <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              {saving ? (
+                <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
               )}
-              {saving ? 'Saving' : 'Save'}
+              {isDirty && !saving && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full" />
+              )}
             </button>
           )}
           <UserMenu onOpenSettings={() => setShowSettings(true)} />
@@ -341,9 +354,17 @@ function EditorPage() {
                   </div>
                 )}
                 <WysiwygEditor
+                  ref={editorRef}
                   key={editorKey}
-                  initialValue={content}
-                  onChange={setContent}
+                  initialValue={pendingContentRef.current}
+                  onChange={(newContent) => {
+                    // Clear pending content after first change (editor initialized)
+                    if (pendingContentRef.current) {
+                      pendingContentRef.current = '';
+                    }
+                    setContent(newContent);
+                  }}
+                  onDirtyChange={setIsDirty}
                 />
               </div>
             ) : (

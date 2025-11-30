@@ -117,15 +117,75 @@ test.describe('Makora Editor', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    // No save button initially
-    await expect(page.getByRole('button', { name: /save/i })).not.toBeVisible();
+    // No save button initially (check icon button)
+    await expect(page.getByTitle(/save|unsaved/i)).not.toBeVisible();
 
     // Open file
     await page.getByText('test.md', { exact: true }).click();
     await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
 
-    // Save button should appear
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
+    // Save button (check icon) should appear
+    await expect(page.getByTitle(/save|unsaved/i)).toBeVisible();
+  });
+
+  test('undo clears dirty flag when returning to original content', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open file
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Wait for editor to initialize
+    await page.waitForTimeout(500);
+
+    // Initially should show "No unsaved changes" (clean state)
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible();
+
+    // Type something to make it dirty
+    const editor = page.locator('.ProseMirror');
+    await editor.click();
+    await page.waitForTimeout(200); // Let editor focus settle
+    await page.keyboard.type('X');
+
+    // Now should show unsaved indicator
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+
+    // Undo the change
+    await page.keyboard.press('Control+z');
+
+    // Should be clean again (no unsaved indicator)
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('save clears dirty flag', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open file
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Wait for editor to initialize
+    await page.waitForTimeout(500);
+
+    // Initially should show "No unsaved changes" (clean state)
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible();
+
+    // Type something to make it dirty
+    const editor = page.locator('.ProseMirror');
+    await editor.click();
+    await page.waitForTimeout(200);
+    await page.keyboard.type('Y');
+
+    // Now should show unsaved indicator (blue dot)
+    await expect(page.getByTitle(/Save changes/i)).toBeVisible({ timeout: 2000 });
+
+    // Save with Ctrl+S
+    await page.keyboard.press('Control+s');
+
+    // Wait for save to complete and dirty flag to clear
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
   });
 
   test('context menu opens on right-click directory', async ({ page }) => {
@@ -204,10 +264,10 @@ test.describe.serial('Makora Editing', () => {
     await page.keyboard.type(`\n\nEdited via button ${timestamp}`);
 
     // Click save button and wait for completion
-    const saveButton = page.getByRole('button', { name: /save/i });
+    const saveButton = page.getByTitle(/save|unsaved/i);
     await saveButton.click();
 
-    // Wait for save to complete (button returns to "Save" state)
+    // Wait for save to complete
     await expect(saveButton).not.toBeDisabled({ timeout: 5000 });
     await page.waitForTimeout(500); // Brief wait for file write
 
@@ -245,7 +305,7 @@ test.describe.serial('Makora Editing', () => {
     await page.keyboard.press('Control+s');
 
     // Wait for save to complete
-    const saveButton = page.getByRole('button', { name: /save/i });
+    const saveButton = page.getByTitle(/save|unsaved/i);
     await expect(saveButton).not.toBeDisabled({ timeout: 5000 });
     await page.waitForTimeout(500);
 
@@ -280,7 +340,7 @@ test.describe.serial('Makora Editing', () => {
 
     // Save
     await page.keyboard.press('Control+s');
-    const saveButton = page.getByRole('button', { name: /save/i });
+    const saveButton = page.getByTitle(/save|unsaved/i);
     await expect(saveButton).not.toBeDisabled({ timeout: 5000 });
     await page.waitForTimeout(500);
 
@@ -357,6 +417,15 @@ test.describe('Makora Images', () => {
     // Check for reasonable size (> 10px) to catch corrupted/placeholder images
     const firstImage = images.first();
     await expect(firstImage).toBeVisible();
+
+    // Wait for image to load (naturalWidth becomes > 0 when loaded)
+    await expect(async () => {
+      const { naturalWidth } = await firstImage.evaluate((el: HTMLImageElement) => ({
+        naturalWidth: el.naturalWidth,
+      }));
+      expect(naturalWidth).toBeGreaterThan(10);
+    }).toPass({ timeout: 10000 });
+
     const { naturalWidth, naturalHeight } = await firstImage.evaluate((el: HTMLImageElement) => ({
       naturalWidth: el.naturalWidth,
       naturalHeight: el.naturalHeight,
@@ -424,7 +493,7 @@ test.describe('Makora Images', () => {
 
     // Save
     await page.keyboard.press('Control+s');
-    const saveButton = page.getByRole('button', { name: /save/i });
+    const saveButton = page.getByTitle(/save|unsaved/i);
     await expect(saveButton).not.toBeDisabled({ timeout: 5000 });
     await page.waitForTimeout(500);
 
