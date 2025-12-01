@@ -132,7 +132,6 @@ function EditorPage() {
   const basePath = searchParams.get('path') || '/';
   const currentFile = searchParams.get('file');
 
-  const [content, setContent] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileDir, setFileDir] = useState('/');
   const [editorKey, setEditorKey] = useState(0);
@@ -182,7 +181,7 @@ function EditorPage() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedFile, content, fileDir]);
+  }, [selectedFile, fileDir]);
 
   const loadFile = async (filePath) => {
     console.log('Loading file:', filePath);
@@ -251,7 +250,7 @@ function EditorPage() {
       setEditorKey(k => k + 1);
     } catch (err) {
       console.error('Failed to load file:', err);
-      setContent(`Error loading file: ${err.message}`);
+      pendingContentRef.current = `Error loading file: ${err.message}`;
       setEditorKey(k => k + 1);
       setLoading(false);
     }
@@ -349,8 +348,8 @@ function EditorPage() {
 
     setSaving(true);
     try {
-      // Get content synchronously from editor (not debounced state)
-      const currentContent = editorRef.current?.getContent() || content;
+      // Get content synchronously from editor
+      const currentContent = editorRef.current?.getContent() || '';
       // Just restore relative image paths
       const saveContent = prepareForSave(currentContent);
       await Meteor.callAsync('webdav.write', selectedFile.filename, saveContent);
@@ -405,7 +404,6 @@ function EditorPage() {
         return next;
       });
       setSelectedFile(null);
-      setContent('');
     }
   };
 
@@ -470,13 +468,6 @@ function EditorPage() {
                       ref={editorRef}
                       key={editorKey}
                       initialValue={pendingContentRef.current}
-                      onChange={(newContent) => {
-                        // Clear pending content after first change (editor initialized)
-                        if (pendingContentRef.current) {
-                          pendingContentRef.current = '';
-                        }
-                        setContent(newContent);
-                      }}
                       onDirtyChange={setIsDirty}
                       onReady={() => setLoading(false)}
                     />
