@@ -135,7 +135,8 @@ function EditorPage() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileDir, setFileDir] = useState('/');
   const [editorKey, setEditorKey] = useState(0);
-  const [loading, setLoading] = useState(false);
+  // Start loading if we have a file to load from URL (page refresh scenario)
+  const [loading, setLoading] = useState(!!searchParams.get('file'));
   const [saving, setSaving] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -251,9 +252,10 @@ function EditorPage() {
       console.error('Failed to load file:', err);
       setContent(`Error loading file: ${err.message}`);
       setEditorKey(k => k + 1);
-    } finally {
       setLoading(false);
     }
+    // Note: setLoading(false) is called by MuyaEditor's onReady callback
+    // to ensure spinner shows until editor is fully rendered
   };
 
   // Reverse transform proxy URLs back to relative paths for saving
@@ -413,27 +415,41 @@ function EditorPage() {
           right={
             currentFile ? (
               <div className="h-full bg-white overflow-auto relative">
-                {loading && (
-                  <div className="sticky top-0 left-0 right-0 h-full bg-white/80 flex items-center justify-center z-10" style={{ marginBottom: '-100%' }}>
+                {/* Show spinner while loading, but don't render editor until content is ready */}
+                {/* editorKey > 0 means content has loaded at least once */}
+                {loading && editorKey === 0 ? (
+                  <div className="h-full flex items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
                       <span className="text-sm text-gray-500">Loading...</span>
                     </div>
                   </div>
+                ) : (
+                  <>
+                    {loading && (
+                      <div className="sticky top-0 left-0 right-0 h-full bg-white/80 flex items-center justify-center z-10" style={{ marginBottom: '-100%' }}>
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+                          <span className="text-sm text-gray-500">Loading...</span>
+                        </div>
+                      </div>
+                    )}
+                    <MuyaEditor
+                      ref={editorRef}
+                      key={editorKey}
+                      initialValue={pendingContentRef.current}
+                      onChange={(newContent) => {
+                        // Clear pending content after first change (editor initialized)
+                        if (pendingContentRef.current) {
+                          pendingContentRef.current = '';
+                        }
+                        setContent(newContent);
+                      }}
+                      onDirtyChange={setIsDirty}
+                      onReady={() => setLoading(false)}
+                    />
+                  </>
                 )}
-                <MuyaEditor
-                  ref={editorRef}
-                  key={editorKey}
-                  initialValue={pendingContentRef.current}
-                  onChange={(newContent) => {
-                    // Clear pending content after first change (editor initialized)
-                    if (pendingContentRef.current) {
-                      pendingContentRef.current = '';
-                    }
-                    setContent(newContent);
-                  }}
-                  onDirtyChange={setIsDirty}
-                />
               </div>
             ) : (
               <WelcomeScreen />

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { Muya, InlineFormatToolbar, EmojiSelector, CodeBlockLanguageSelector } from '@muyajs/core';
+import { Muya, InlineFormatToolbar, EmojiSelector, CodeBlockLanguageSelector, replaceBlockByLabel } from '@muyajs/core';
 import '@muyajs/core/lib/core.css';
 
 // Register plugins once at module load
@@ -9,7 +9,7 @@ if (!Muya.plugins?.length) {
   Muya.use(CodeBlockLanguageSelector);
 }
 
-export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onChange, onDirtyChange }, ref) {
+export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onChange, onDirtyChange, onReady }, ref) {
   const containerRef = useRef(null);
   const muyaRef = useRef(null);
   const lastDirtyRef = useRef(false);
@@ -30,6 +30,7 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
 
     const muya = new Muya(wrapperDiv, {
       markdown: initialValue || '',
+      hideQuickInsertHint: true, // Disable "Type / to insert..." placeholder
     });
 
     muya.init();
@@ -42,6 +43,34 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
     // Notify parent of initial state
     onChange?.(muya.getMarkdown());
     onDirtyChange?.(false);
+
+    // Signal that editor is ready after content has actually rendered
+    // For large documents, the browser needs multiple frames to paint all content
+    const waitForContent = () => {
+      // Check if content has been rendered by looking for paragraph elements
+      const editorEl = muya.domNode;
+      const hasContent = editorEl && (
+        // Either editor has visible text content
+        editorEl.textContent?.trim().length > 0 ||
+        // Or it has paragraph elements (even if empty - for empty documents)
+        editorEl.querySelector('.mu-paragraph')
+      );
+
+      if (hasContent) {
+        // Content exists, wait one more frame for paint to complete
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            onReady?.();
+          });
+        });
+      } else {
+        // Content not yet rendered, check again next frame
+        requestAnimationFrame(waitForContent);
+      }
+    };
+
+    // Start checking after init completes
+    requestAnimationFrame(waitForContent);
 
     // Listen for content changes
     muya.on('json-change', () => {
@@ -83,6 +112,53 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
 
       // Accept both Ctrl and Cmd for cross-platform support
       const modKey = e.ctrlKey || e.metaKey;
+
+      // Typora-style heading shortcuts: Cmd+1-6 for headings, Cmd+0 for paragraph
+      if (modKey && !e.shiftKey && !e.altKey) {
+        const key = e.key;
+        let label = null;
+
+        if (key >= '1' && key <= '6') {
+          label = `atx-heading ${key}`;
+        } else if (key === '0') {
+          label = 'paragraph';
+        }
+
+        if (label) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Get the current block
+          const muya = muyaRef.current;
+
+          // Flush any pending operations to ensure we get the latest content
+          // (operations are batched with requestAnimationFrame, so typing may not be reflected yet)
+          muya.editor.jsonState.flush?.();
+
+          const selection = muya.editor.selection.getSelection();
+          const anchorBlock = selection?.anchorBlock;
+          const block = anchorBlock?.parent;
+
+          if (block) {
+            // Preserve text content by stripping markdown prefixes
+            // Try to get text from the block's children first, fallback to DOM content
+            let rawText = block.children[0]?.text || '';
+
+            // If rawText is empty, try to get content from the DOM node
+            if (!rawText && anchorBlock?.domNode) {
+              rawText = anchorBlock.domNode.textContent || '';
+            }
+
+            const text = block.blockName === 'paragraph'
+              ? rawText
+              : rawText.replace(/^ {0,3}#{1,6}(?:\s+|$)/, '');
+
+            // Convert the block to the target type
+            replaceBlockByLabel({ block, muya, label, text });
+          }
+          return;
+        }
+      }
 
       // Handle Ctrl+Z / Cmd+Z for undo, Ctrl+Shift+Z / Cmd+Shift+Z for redo
       if (modKey && (e.key === 'z' || e.key === 'Z')) {

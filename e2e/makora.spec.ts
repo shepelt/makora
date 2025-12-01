@@ -545,6 +545,200 @@ test.describe('Makora Performance', () => {
   });
 });
 
+test.describe('Makora Keyboard Shortcuts', () => {
+  test('Cmd/Ctrl+1 converts paragraph to H1', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Click in editor and type new text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nHeading Test Line');
+    await page.waitForTimeout(100);
+
+    // Verify text was typed
+    await expect(page.getByText('Heading Test Line')).toBeVisible({ timeout: 5000 });
+
+    // Apply H1 shortcut
+    await page.keyboard.press('Control+1');
+    await page.waitForTimeout(500);
+
+    // Verify it became a heading (check for h1 element)
+    await expect(page.locator('.mu-editor h1').getByText('Heading Test Line')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('Cmd/Ctrl+2 converts paragraph to H2', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nH2 Test Line');
+
+    await page.keyboard.press('Control+2');
+    await page.waitForTimeout(200);
+
+    await expect(page.locator('.mu-editor h2').getByText('H2 Test Line')).toBeVisible();
+  });
+
+  test('Cmd/Ctrl+0 converts heading back to paragraph', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nParagraph Test');
+
+    // First make it a heading
+    await page.keyboard.press('Control+1');
+    await page.waitForTimeout(200);
+    await expect(page.locator('.mu-editor h1').getByText('Paragraph Test')).toBeVisible();
+
+    // Then convert back to paragraph
+    await page.keyboard.press('Control+0');
+    await page.waitForTimeout(200);
+
+    // Should no longer be a heading (check it's in a paragraph, not h1)
+    await expect(page.locator('.mu-editor h1').getByText('Paragraph Test')).not.toBeVisible();
+    await expect(page.getByText('Paragraph Test')).toBeVisible();
+  });
+
+  test('heading shortcuts preserve existing text', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nPreserve This Text Content');
+
+    // Apply H3 shortcut
+    await page.keyboard.press('Control+3');
+    await page.waitForTimeout(200);
+
+    // Text should be preserved in the heading
+    await expect(page.locator('.mu-editor h3').getByText('Preserve This Text Content')).toBeVisible();
+  });
+
+  test('can cycle through heading levels', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nCycling Heading');
+
+    // H1
+    await page.keyboard.press('Control+1');
+    await page.waitForTimeout(100);
+    await expect(page.locator('.mu-editor h1').getByText('Cycling Heading')).toBeVisible();
+
+    // H4
+    await page.keyboard.press('Control+4');
+    await page.waitForTimeout(100);
+    await expect(page.locator('.mu-editor h4').getByText('Cycling Heading')).toBeVisible();
+
+    // H6
+    await page.keyboard.press('Control+6');
+    await page.waitForTimeout(100);
+    await expect(page.locator('.mu-editor h6').getByText('Cycling Heading')).toBeVisible();
+
+    // Back to paragraph
+    await page.keyboard.press('Control+0');
+    await page.waitForTimeout(100);
+    await expect(page.locator('.mu-editor h6').getByText('Cycling Heading')).not.toBeVisible();
+  });
+
+  test('Cmd/Ctrl+B applies bold to current word (no selection)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Click in editor and type a word
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nBoldWord here');
+    await page.waitForTimeout(100);
+
+    // Move cursor to middle of "BoldWord" (position cursor inside the word)
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+
+    // Apply bold shortcut (should select and bold the current word)
+    await page.keyboard.press('Control+b');
+    await page.waitForTimeout(300);
+
+    // Verify the word is now bold - look for strong element containing "BoldWord"
+    await expect(page.locator('.mu-editor strong').getByText('BoldWord')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('Cmd/Ctrl+B applies bold to selection', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Click in editor and type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nSelect this text');
+    await page.waitForTimeout(100);
+
+    // Select "this" by double-clicking or shift+arrow keys
+    await page.keyboard.press('Home');
+    for (let i = 0; i < 7; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+    // Select "this"
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+ArrowRight');
+
+    // Apply bold shortcut
+    await page.keyboard.press('Control+b');
+    await page.waitForTimeout(300);
+
+    // Verify "this" is bold
+    await expect(page.locator('.mu-editor strong').getByText('this')).toBeVisible({ timeout: 5000 });
+  });
+});
+
 test.describe('Makora Images', () => {
   const imageTestFilePath = resolve('./tests/fixtures/webdav/image-test.md');
   let originalImageContent: string;
