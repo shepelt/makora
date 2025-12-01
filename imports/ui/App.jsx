@@ -7,6 +7,7 @@ import { FileBrowser } from './FileBrowser';
 import { SplitPanel } from './SplitPanel';
 import { Login } from './Login';
 import { Settings } from './Settings';
+import { FileItems } from '../api/collections';
 
 function UserMenu({ onOpenSettings }) {
   const [open, setOpen] = useState(false);
@@ -356,6 +357,11 @@ function EditorPage() {
       console.log('File saved successfully');
       // Mark editor as clean after successful save
       editorRef.current?.markClean();
+      // Update lastmod in FileItems collection for proper date sorting
+      FileItems.update(
+        { filename: selectedFile.filename },
+        { $set: { lastmod: new Date() } }
+      );
     } catch (err) {
       console.error('Failed to save file:', err);
     } finally {

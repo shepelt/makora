@@ -13,6 +13,34 @@ async function waitForAppReady(page: Page) {
   await expect(page.getByText('test.md', { exact: true }).first()).toBeVisible({ timeout: 20000 });
 }
 
+// Helper to set up authenticated session for image proxy
+// This mimics how Meteor actually stores auth tokens (localStorage, not cookies)
+async function setupAuthSession(page: Page) {
+  await page.goto('/');
+  // Wait for Meteor to be available
+  await page.waitForFunction(() => typeof (window as any).Meteor !== 'undefined', { timeout: 15000 });
+
+  // Create test user with token
+  const result = await page.evaluate(async () => {
+    return new Promise((resolve, reject) => {
+      // @ts-ignore - Meteor is available in browser
+      Meteor.call('debug.createTestUserWithToken', (err: any, res: any) => {
+        if (err) reject(new Error(err.reason || err.message));
+        else resolve(res);
+      });
+    });
+  }) as { token: string; userId: string };
+
+  // Set the login token in localStorage (like Meteor does - NOT cookies)
+  await page.evaluate((token: string) => {
+    localStorage.setItem('Meteor.loginToken', token);
+  }, result.token);
+
+  // Reload so the client uses the token from localStorage
+  await page.reload();
+  await waitForAppReady(page);
+}
+
 test.describe('Makora Editor', () => {
   // Clear test user settings before all tests to ensure we use the test WebDAV server
   test.beforeAll(async ({ browser }) => {
@@ -1149,34 +1177,6 @@ test.describe('Makora Images', () => {
     writeFileSync(imageTestFilePath, originalImageContent);
   });
 
-  // Helper to set up authenticated session for image proxy
-  // This mimics how Meteor actually stores auth tokens (localStorage, not cookies)
-  async function setupAuthSession(page: any) {
-    await page.goto('/');
-    // Wait for Meteor to be available
-    await page.waitForFunction(() => typeof (window as any).Meteor !== 'undefined', { timeout: 15000 });
-
-    // Create test user with token
-    const result = await page.evaluate(async () => {
-      return new Promise((resolve, reject) => {
-        // @ts-ignore - Meteor is available in browser
-        Meteor.call('debug.createTestUserWithToken', (err: any, res: any) => {
-          if (err) reject(new Error(err.reason || err.message));
-          else resolve(res);
-        });
-      });
-    }) as { token: string; userId: string };
-
-    // Set the login token in localStorage (like Meteor does - NOT cookies)
-    await page.evaluate((token: string) => {
-      localStorage.setItem('Meteor.loginToken', token);
-    }, result.token);
-
-    // Reload so the client uses the token from localStorage
-    await page.reload();
-    await waitForAppReady(page);
-  }
-
   test('renders images from markdown file', async ({ page }) => {
     await setupAuthSession(page);
 
@@ -1329,5 +1329,79 @@ test.describe('Makora Images', () => {
     // Verify we have actual images rendered (should be 4: relative, absolute, html, external)
     const images = page.locator('.mu-editor img');
     await expect(images).toHaveCount(4, { timeout: 10000 });
+  });
+});
+
+test.describe('Makora Sorting', () => {
+  test('newly created file appears first when sorted by date descending', async ({ page }) => {
+    await setupAuthSession(page);
+
+    // Switch to date (newest) sort order
+    await page.getByTitle('Sort order').click();
+    await page.getByText('Date (Newest)').click();
+    await page.waitForTimeout(500);
+
+    // Create a new file at root level via + button in header
+    await page.getByTitle('New file').click();
+
+    // Enter filename
+    const timestamp = Date.now();
+    const filename = `sort-test-${timestamp}`;
+    await page.getByPlaceholder('filename.md').fill(filename);
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    // Wait for file to be created
+    await expect(page.getByText(`${filename}.md`).first()).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Get all file items - the newly created file should be first .md file
+    const fileBrowser = page.locator('.h-full.flex.flex-col.bg-gray-50');
+    const fileItems = fileBrowser.locator('[class*="py-1 px-2 cursor-pointer"]');
+    const allItems = await fileItems.allTextContents();
+
+    // Find the first .md file (directories sort before files)
+    const firstFileIndex = allItems.findIndex(text => text.includes('.md'));
+    expect(allItems[firstFileIndex]).toContain(filename);
+
+    // Clean up - delete the test file
+    const getContextMenuItem = (name: string) =>
+      page.locator('.fixed.bg-white.rounded.shadow-lg button').getByText(name, { exact: true });
+    await page.locator('.truncate').getByText(`${filename}.md`).click({ button: 'right' });
+    await getContextMenuItem('Delete').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await expect(page.locator('.truncate').getByText(`${filename}.md`)).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test('saved file moves to first position when sorted by date descending', async ({ page }) => {
+    await setupAuthSession(page);
+
+    // Switch to date (newest) sort order
+    await page.getByTitle('Sort order').click();
+    await page.getByText('Date (Newest)').click();
+    await page.waitForTimeout(500);
+
+    // Open an existing file (hello.md is in the fixture)
+    await page.getByText('hello.md').click();
+    await expect(page.getByText('Hello World')).toBeVisible({ timeout: 10000 });
+
+    // Make a change and save
+    const editor = page.locator('[contenteditable="true"]').first();
+    await editor.click();
+    await editor.press('End');
+    await page.keyboard.type(' - updated');
+
+    // Save the file
+    await page.keyboard.press('Meta+s');
+    await page.waitForTimeout(1000);
+
+    // hello.md should now be at the top of the root files (after directories)
+    // since its lastmod was just updated
+    const fileBrowser = page.locator('.h-full.flex.flex-col.bg-gray-50');
+    const fileItems = fileBrowser.locator('[class*="py-1 px-2 cursor-pointer"]');
+    const allItems = await fileItems.allTextContents();
+
+    // Find first file (not directory) - should be hello.md
+    const firstFileIndex = allItems.findIndex(text => text.includes('.md'));
+    expect(allItems[firstFileIndex]).toContain('hello.md');
   });
 });
