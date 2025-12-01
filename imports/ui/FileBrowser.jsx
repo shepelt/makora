@@ -356,6 +356,9 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
 
       // Upsert items into collection
       filtered.forEach(item => {
+        // Convert lastmod to Date object for proper sorting
+        // WebDAV returns RFC 2822 format: "Sat, 30 Nov 2024 10:30:00 GMT"
+        const lastmodDate = item.lastmod ? new Date(item.lastmod) : null;
         FileItems.upsert(
           { filename: item.filename },
           {
@@ -363,7 +366,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
               filename: item.filename,
               basename: item.basename,
               type: item.type,
-              lastmod: item.lastmod,
+              lastmod: lastmodDate,
               parent: dirPath,
             }
           }
@@ -545,7 +548,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
         $set: {
           filename: newPath,
           basename: newName,
-          lastmod: new Date().toISOString()
+          lastmod: new Date()
         }
       }
     );
@@ -567,7 +570,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
       filename: newPath,
       basename: filename,
       type: 'file',
-      lastmod: new Date().toISOString(),
+      lastmod: new Date(),
       parent: parentDir || normalizedBasePath,
     });
 
@@ -588,7 +591,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
       filename: newPath,
       basename: name,
       type: 'directory',
-      lastmod: new Date().toISOString(),
+      lastmod: new Date(),
       parent: parentDir || normalizedBasePath,
       loaded: false,
     });
