@@ -305,7 +305,7 @@ function getSortObject(sortOrder) {
   }
 }
 
-export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
+export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onFileDelete }) {
   const [expandedPaths, setExpandedPaths] = useState(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -523,6 +523,11 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
       if (item.type === 'directory') {
         FileItems.remove({ parent: { $regex: `^${item.filename}` } });
       }
+
+      // Notify parent that file was deleted
+      if (onFileDelete) {
+        onFileDelete(item.filename, item.type);
+      }
     } catch (err) {
       alert(`Failed to delete: ${err.reason || err.message}`);
     } finally {
@@ -566,13 +571,28 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     setNewFileDialog(null);
 
     // Add to collection
+    const now = new Date();
     FileItems.insert({
       filename: newPath,
       basename: filename,
       type: 'file',
-      lastmod: new Date(),
+      lastmod: now,
       parent: parentDir || normalizedBasePath,
     });
+
+    // Update parent folder(s) lastmod so folders sort by newest content
+    let path = newPath;
+    while (path.includes('/')) {
+      const lastSlash = path.lastIndexOf('/');
+      path = path.substring(0, lastSlash) || '/';
+      if (path !== '/' && path !== '') {
+        FileItems.update(
+          { filename: path },
+          { $set: { lastmod: now } }
+        );
+      }
+      if (path === '/' || path === '') break;
+    }
 
     // Open the new file
     onFileSelect?.({ filename: newPath, basename: filename, type: 'file' });

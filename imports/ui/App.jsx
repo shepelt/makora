@@ -358,10 +358,24 @@ function EditorPage() {
       // Mark editor as clean after successful save
       editorRef.current?.markClean();
       // Update lastmod in FileItems collection for proper date sorting
+      const now = new Date();
       FileItems.update(
         { filename: selectedFile.filename },
-        { $set: { lastmod: new Date() } }
+        { $set: { lastmod: now } }
       );
+      // Also update parent folder(s) lastmod so folders sort by newest content
+      let path = selectedFile.filename;
+      while (path.includes('/')) {
+        const lastSlash = path.lastIndexOf('/');
+        path = path.substring(0, lastSlash) || '/';
+        if (path !== '/') {
+          FileItems.update(
+            { filename: path },
+            { $set: { lastmod: now } }
+          );
+        }
+        if (path === '/') break;
+      }
     } catch (err) {
       console.error('Failed to save file:', err);
     } finally {
@@ -375,6 +389,24 @@ function EditorPage() {
       next.set('file', file.filename);
       return next;
     });
+  };
+
+  const handleFileDelete = (deletedPath, type) => {
+    // Check if the deleted file or folder contains the currently open file
+    const shouldClose = type === 'directory'
+      ? currentFile?.startsWith(deletedPath + '/')
+      : currentFile === deletedPath;
+
+    if (shouldClose) {
+      // Clear the file from URL to close the editor
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('file');
+        return next;
+      });
+      setSelectedFile(null);
+      setContent('');
+    }
   };
 
   return (
@@ -416,6 +448,7 @@ function EditorPage() {
             <FileBrowser
               basePath={basePath}
               onFileSelect={handleFileSelect}
+              onFileDelete={handleFileDelete}
               currentFilePath={currentFile}
             />
           }

@@ -1027,6 +1027,52 @@ test.describe('Makora File Management', () => {
     await expect(page.locator('.truncate').getByText('test.md', { exact: true })).toBeVisible();
   });
 
+  test('deleting open file closes editor', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Create a test file to delete
+    await page.getByText('Subfolder').click({ button: 'right' });
+    await getContextMenuItem(page, 'New file').click();
+    const input = page.locator('input[placeholder="filename.md"]');
+    const timestamp = Date.now();
+    const filename = `delete-close-test-${timestamp}`;
+    await input.fill(filename);
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(input).not.toBeVisible({ timeout: 10000 });
+
+    // Refresh and expand Subfolder to see the file
+    await page.getByTitle('Refresh').click();
+    await page.waitForTimeout(500);
+    await page.getByText('Subfolder').click();
+    const fileItem = page.locator('.truncate').getByText(`${filename}.md`);
+    await expect(fileItem).toBeVisible({ timeout: 5000 });
+
+    // Open the file in the editor
+    await fileItem.click();
+
+    // Wait for editor to load - file param should be in URL
+    await expect(page).toHaveURL(new RegExp(`file=.*${filename}`), { timeout: 5000 });
+
+    // Verify filename is shown in header (center span with specific class)
+    const headerFilename = page.locator('span.text-warm-gray').getByText(`${filename}.md`);
+    await expect(headerFilename).toBeVisible({ timeout: 5000 });
+
+    // Right-click on the file in file browser and delete it
+    await fileItem.click({ button: 'right' });
+    await getContextMenuItem(page, 'Delete').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+
+    // File should be gone from file browser
+    await expect(fileItem).not.toBeVisible({ timeout: 5000 });
+
+    // Editor should be closed - file param should be removed from URL
+    await expect(page).not.toHaveURL(/file=/, { timeout: 5000 });
+
+    // File name should not be in header anymore
+    await expect(headerFilename).not.toBeVisible();
+  });
+
   test('creates new file via + button in header', async ({ page }) => {
     await page.goto('/');
     await waitForAppReady(page);
@@ -1403,5 +1449,109 @@ test.describe('Makora Sorting', () => {
     // Find first file (not directory) - should be hello.md
     const firstFileIndex = allItems.findIndex(text => text.includes('.md'));
     expect(allItems[firstFileIndex]).toContain('hello.md');
+  });
+
+  test('folder with updated file moves first when sorted by date descending', async ({ page }) => {
+    await setupAuthSession(page);
+
+    // Switch to date (newest) sort order
+    await page.getByTitle('Sort order').click();
+    await page.getByText('Date (Newest)').click();
+    await page.waitForTimeout(500);
+
+    // Get current folder order - we have AFolder and Subfolder
+    // AFolder is alphabetically first, Subfolder is alphabetically second
+    const fileBrowser = page.locator('.h-full.flex.flex-col.bg-gray-50');
+    const fileItems = fileBrowser.locator('[class*="py-1 px-2 cursor-pointer"]');
+    const initialItems = await fileItems.allTextContents();
+
+    // Find the folder positions (directories come first)
+    const aFolderIndex = initialItems.findIndex(text => text.includes('AFolder'));
+    const subfolderIndex = initialItems.findIndex(text => text.includes('Subfolder'));
+
+    // Verify both folders exist
+    expect(aFolderIndex).toBeGreaterThanOrEqual(0);
+    expect(subfolderIndex).toBeGreaterThanOrEqual(0);
+
+    // Expand Subfolder and edit a file inside it
+    await page.getByText('Subfolder').click();
+    await page.waitForTimeout(500);
+
+    // Click on a file inside Subfolder (nested.md is the fixture file in Subfolder)
+    await page.locator('.truncate').getByText('nested.md').click();
+    await page.waitForTimeout(1000);
+
+    // Make a change and save
+    const editor = page.locator('[contenteditable="true"]').first();
+    await editor.click();
+    await editor.press('End');
+    await page.keyboard.type(' - folder test');
+
+    // Save the file
+    await page.keyboard.press('Meta+s');
+    await page.waitForTimeout(1000);
+
+    // Get updated folder order
+    const updatedItems = await fileItems.allTextContents();
+    const newSubfolderIndex = updatedItems.findIndex(text => text.includes('Subfolder'));
+    const newAFolderIndex = updatedItems.findIndex(text => text.includes('AFolder'));
+
+    // Subfolder should now be before AFolder (lower index = higher in list = more recent)
+    expect(newSubfolderIndex).toBeLessThan(newAFolderIndex);
+  });
+
+  test('folder with newly created file moves first when sorted by date descending', async ({ page }) => {
+    await setupAuthSession(page);
+
+    // Switch to date (newest) sort order
+    await page.getByTitle('Sort order').click();
+    await page.getByText('Date (Newest)').click();
+    await page.waitForTimeout(500);
+
+    // Get current folder order - we have AFolder and Subfolder
+    const fileBrowser = page.locator('.h-full.flex.flex-col.bg-gray-50');
+    const fileItems = fileBrowser.locator('[class*="py-1 px-2 cursor-pointer"]');
+    const initialItems = await fileItems.allTextContents();
+
+    // Find the folder positions
+    const aFolderIndex = initialItems.findIndex(text => text.includes('AFolder'));
+    const subfolderIndex = initialItems.findIndex(text => text.includes('Subfolder'));
+
+    // Verify both folders exist
+    expect(aFolderIndex).toBeGreaterThanOrEqual(0);
+    expect(subfolderIndex).toBeGreaterThanOrEqual(0);
+
+    // Right-click on Subfolder to create a new file inside it
+    await page.getByText('Subfolder').click({ button: 'right' });
+    await page.waitForTimeout(200);
+
+    // Click "New file" in context menu
+    const getContextMenuItem = (name: string) =>
+      page.locator('.fixed.bg-white.rounded.shadow-lg button').getByText(name, { exact: true });
+    await getContextMenuItem('New file').click();
+
+    // Enter filename and create
+    const timestamp = Date.now();
+    const filename = `folder-create-test-${timestamp}`;
+    await page.getByPlaceholder('filename.md').fill(filename);
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    // Wait for file to be created
+    await expect(page.getByText(`${filename}.md`).first()).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Get updated folder order
+    const updatedItems = await fileItems.allTextContents();
+    const newSubfolderIndex = updatedItems.findIndex(text => text.includes('Subfolder'));
+    const newAFolderIndex = updatedItems.findIndex(text => text.includes('AFolder'));
+
+    // Subfolder should now be before AFolder (lower index = higher in list = more recent)
+    expect(newSubfolderIndex).toBeLessThan(newAFolderIndex);
+
+    // Cleanup - delete the test file
+    await page.locator('.truncate').getByText(`${filename}.md`).click({ button: 'right' });
+    await getContextMenuItem('Delete').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await expect(page.locator('.truncate').getByText(`${filename}.md`)).not.toBeVisible({ timeout: 10000 });
   });
 });
