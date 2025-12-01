@@ -8,3 +8,7 @@ html, body, #react-target {
 body {
   font-family: sans-serif;
 }
+
+.muya-editor-wrapper .mu-editor {
+  padding-left: 1rem !important;
+}
