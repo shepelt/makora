@@ -410,6 +410,7 @@ function EditorPage() {
             <FileBrowser
               basePath={basePath}
               onFileSelect={handleFileSelect}
+              currentFilePath={currentFile}
             />
           }
           right={

@@ -26,22 +26,24 @@ function Modal({ title, children, onClose }) {
 }
 
 // Confirmation dialog
-function ConfirmDialog({ title, message, onConfirm, onCancel, confirmText = 'Delete', danger = false }) {
+function ConfirmDialog({ title, message, onConfirm, onCancel, confirmText = 'Delete', danger = false, loading = false }) {
   return (
-    <Modal title={title} onClose={onCancel}>
+    <Modal title={title} onClose={loading ? () => {} : onCancel}>
       <p className="text-sm text-gray-600 mb-4">{message}</p>
       <div className="flex justify-end gap-2">
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+          className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
+          disabled={loading}
         >
           Cancel
         </button>
         <button
           onClick={onConfirm}
-          className={`px-3 py-1.5 text-sm text-white rounded ${danger ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+          className={`px-3 py-1.5 text-sm text-white rounded disabled:opacity-50 ${danger ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+          disabled={loading}
         >
-          {confirmText}
+          {loading ? 'Deleting...' : confirmText}
         </button>
       </div>
     </Modal>
@@ -165,10 +167,11 @@ function ContextMenu({ x, y, item, onClose, onOpenNewTab, onRename, onDelete, on
   );
 }
 
-function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, loadChildren, children: childItems, onContextMenu }) {
+function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, loadChildren, children: childItems, onContextMenu, currentFilePath }) {
   const isExpanded = expandedPaths.has(item.filename);
   const isDirectory = item.type === 'directory';
   const isLoading = expandedPaths.get(item.filename) === 'loading';
+  const isActive = currentFilePath === item.filename;
 
   const handleClick = () => {
     if (isDirectory) {
@@ -188,7 +191,7 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, load
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className="flex items-center gap-1 py-1 px-2 hover:bg-gray-100 cursor-pointer"
+        className={`flex items-center gap-1 py-1 px-2 cursor-pointer ${isActive ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100'}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
       >
         {isDirectory ? (
@@ -205,9 +208,9 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, load
           <span className="w-4" />
         )}
         {isDirectory ? (
-          <FolderIcon className="w-4 h-4 text-gray-500" />
+          <FolderIcon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
         ) : (
-          <DocumentIcon className="w-4 h-4 text-gray-400" />
+          <DocumentIcon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
         )}
         <span className="flex-1 truncate text-sm">{item.basename}</span>
       </div>
@@ -222,6 +225,7 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, load
           loadChildren={loadChildren}
           children={child.children}
           onContextMenu={onContextMenu}
+          currentFilePath={currentFilePath}
         />
       ))}
     </>
@@ -350,9 +354,9 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
       const filtered = result.filter(item => !item.basename.startsWith('.'));
 
       if (isRoot) {
-        setRootItems(filtered);
+        setRootItems(sortItems(filtered));
       } else {
-        setChildrenCache(prev => new Map(prev).set(dirPath, filtered));
+        setChildrenCache(prev => new Map(prev).set(dirPath, sortItems(filtered)));
       }
 
       return filtered;
@@ -400,6 +404,127 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     loadDirectory(normalizedBasePath);
   }, [normalizedBasePath]);
 
+  // Auto-expand folders to reveal the currently active file
+  useEffect(() => {
+    if (!currentFilePath || !currentFilePath.startsWith(normalizedBasePath)) return;
+
+    // Get all ancestor directories between basePath and the file
+    const relativePath = currentFilePath.slice(normalizedBasePath.length);
+    const parts = relativePath.split('/').filter(Boolean);
+    parts.pop(); // Remove the filename itself
+
+    if (parts.length === 0) return; // File is in root, no folders to expand
+
+    // Build list of ancestor paths to expand
+    const ancestorPaths = [];
+    let currentPath = normalizedBasePath === '/' ? '' : normalizedBasePath;
+    for (const part of parts) {
+      currentPath = currentPath + '/' + part;
+      ancestorPaths.push(currentPath);
+    }
+
+    // Expand each ancestor sequentially (need to load children)
+    const expandAncestors = async () => {
+      for (const ancestorPath of ancestorPaths) {
+        // Skip if already expanded
+        if (expandedPaths.has(ancestorPath) && expandedPaths.get(ancestorPath) !== 'loading') {
+          continue;
+        }
+
+        // Load children if not cached
+        if (!childrenCache.has(ancestorPath)) {
+          await loadDirectory(ancestorPath);
+        }
+
+        // Mark as expanded
+        setExpandedPaths(prev => {
+          const next = new Map(prev);
+          next.set(ancestorPath, true);
+          return next;
+        });
+      }
+    };
+
+    expandAncestors();
+  }, [currentFilePath, normalizedBasePath]);
+
+  // Helper to get parent directory of a path
+  const getParentDir = (filePath) => {
+    const parts = filePath.split('/');
+    parts.pop();
+    return parts.join('/') || '/';
+  };
+
+  // Helper to remove an item from the state (rootItems or childrenCache)
+  const removeItemFromState = useCallback((filePath) => {
+    const parentDir = getParentDir(filePath);
+    const isInRoot = parentDir === normalizedBasePath ||
+      (normalizedBasePath === '/' && parentDir === '');
+
+    if (isInRoot) {
+      setRootItems(prev => prev.filter(item => item.filename !== filePath));
+    } else {
+      setChildrenCache(prev => {
+        const next = new Map(prev);
+        const children = next.get(parentDir);
+        if (children) {
+          next.set(parentDir, children.filter(item => item.filename !== filePath));
+        }
+        return next;
+      });
+    }
+  }, [normalizedBasePath]);
+
+  // Helper to add an item to the state (with proper sorting)
+  const addItemToState = useCallback((parentDir, newItem) => {
+    const isInRoot = parentDir === normalizedBasePath ||
+      (normalizedBasePath === '/' && parentDir === '');
+
+    if (isInRoot) {
+      setRootItems(prev => sortItems([...prev, newItem]));
+    } else {
+      setChildrenCache(prev => {
+        const next = new Map(prev);
+        const children = next.get(parentDir) || [];
+        next.set(parentDir, sortItems([...children, newItem]));
+        return next;
+      });
+    }
+  }, [normalizedBasePath, sortItems]);
+
+  // Helper to update an item in the state (for rename)
+  const updateItemInState = useCallback((oldPath, newItem) => {
+    const oldParentDir = getParentDir(oldPath);
+    const newParentDir = getParentDir(newItem.filename);
+
+    // If moving between directories (shouldn't happen in rename, but handle it)
+    if (oldParentDir !== newParentDir) {
+      removeItemFromState(oldPath);
+      addItemToState(newParentDir, newItem);
+      return;
+    }
+
+    const isInRoot = oldParentDir === normalizedBasePath ||
+      (normalizedBasePath === '/' && oldParentDir === '');
+
+    if (isInRoot) {
+      setRootItems(prev => sortItems(
+        prev.map(item => item.filename === oldPath ? newItem : item)
+      ));
+    } else {
+      setChildrenCache(prev => {
+        const next = new Map(prev);
+        const children = next.get(oldParentDir);
+        if (children) {
+          next.set(oldParentDir, sortItems(
+            children.map(item => item.filename === oldPath ? newItem : item)
+          ));
+        }
+        return next;
+      });
+    }
+  }, [normalizedBasePath, sortItems, removeItemFromState, addItemToState]);
+
   const handleContextMenu = (e, item) => {
     setContextMenu({
       x: e.clientX,
@@ -415,16 +540,21 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     setContextMenu(null);
   };
 
+  const [deleting, setDeleting] = useState(false);
+
   const handleDelete = async () => {
     const item = deleteDialog;
-    if (!item) return;
+    if (!item || deleting) return;
 
+    setDeleting(true);
     try {
       await Meteor.callAsync('webdav.delete', item.filename);
       setDeleteDialog(null);
-      refresh();
+      removeItemFromState(item.filename);
     } catch (err) {
       alert(`Failed to delete: ${err.reason || err.message}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -440,7 +570,15 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
 
     await Meteor.callAsync('webdav.move', item.filename, newPath);
     setRenameDialog(null);
-    refresh();
+
+    // Update local state with new item data
+    const updatedItem = {
+      ...item,
+      filename: newPath,
+      basename: newName,
+      lastmod: new Date().toISOString()
+    };
+    updateItemInState(item.filename, updatedItem);
   };
 
   const handleNewFile = async (name) => {
@@ -453,7 +591,15 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
 
     await Meteor.callAsync('webdav.createFile', newPath, `# ${name.replace('.md', '')}\n\n`);
     setNewFileDialog(null);
-    refresh();
+
+    // Add new file to local state
+    const newItem = {
+      filename: newPath,
+      basename: filename,
+      type: 'file',
+      lastmod: new Date().toISOString()
+    };
+    addItemToState(parentDir || '/', newItem);
 
     // Open the new file
     onFileSelect?.({ filename: newPath, basename: filename, type: 'file' });
@@ -461,12 +607,20 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
 
   const handleNewFolder = async (name) => {
     const parentDir = newFolderDialog;
-    if (!parentDir) return;
+    if (parentDir === null) return;
 
     const newPath = `${parentDir}/${name}`;
     await Meteor.callAsync('webdav.createDirectory', newPath);
     setNewFolderDialog(null);
-    refresh();
+
+    // Add new folder to local state
+    const newItem = {
+      filename: newPath,
+      basename: name,
+      type: 'directory',
+      lastmod: new Date().toISOString()
+    };
+    addItemToState(parentDir || '/', newItem);
   };
 
   const handleNewFileInRoot = () => {
@@ -536,6 +690,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
             loadChildren={loadDirectory}
             children={item.children}
             onContextMenu={handleContextMenu}
+            currentFilePath={currentFilePath}
           />
         ))}
       </div>
@@ -579,6 +734,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
           onConfirm={handleDelete}
           onCancel={() => setDeleteDialog(null)}
           danger
+          loading={deleting}
         />
       )}
 

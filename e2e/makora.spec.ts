@@ -1075,6 +1075,65 @@ test.describe('Makora File Management', () => {
     // Dialog should close
     await expect(input).not.toBeVisible({ timeout: 2000 });
   });
+
+  test('highlights currently open file in file browser', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Initially no file should be highlighted (check for bg-blue-100 class)
+    const testMdRow = page.locator('.truncate').getByText('test.md', { exact: true }).locator('..');
+    await expect(testMdRow).not.toHaveClass(/bg-blue-100/);
+
+    // Click on test.md to open it
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Now test.md row should have highlighting class (bg-blue-100)
+    await expect(testMdRow).toHaveClass(/bg-blue-100/, { timeout: 5000 });
+
+    // Click on another file (image-test.md)
+    await page.getByText('image-test.md', { exact: true }).click();
+    await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
+
+    // test.md should no longer be highlighted
+    await expect(testMdRow).not.toHaveClass(/bg-blue-100/);
+
+    // image-test.md should now be highlighted
+    const imageTestRow = page.locator('.truncate').getByText('image-test.md', { exact: true }).locator('..');
+    await expect(imageTestRow).toHaveClass(/bg-blue-100/);
+  });
+
+  test('auto-expands parent folders to show highlighted file in nested path', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // First expand Subfolder and click on a nested file
+    await page.locator('.truncate').getByText('Subfolder', { exact: true }).click();
+    await page.waitForTimeout(500);
+
+    // Click on nested.md (in Subfolder)
+    await page.locator('.truncate').getByText('nested.md', { exact: true }).click();
+    await expect(page.getByText('Nested File')).toBeVisible({ timeout: 10000 });
+
+    // Collapse the folder
+    await page.locator('.truncate').getByText('Subfolder', { exact: true }).click();
+    await page.waitForTimeout(300);
+
+    // Verify nested.md is no longer visible (folder is collapsed)
+    await expect(page.locator('.truncate').getByText('nested.md', { exact: true })).not.toBeVisible();
+
+    // Refresh the page - the parent folder should auto-expand to show the active file
+    await page.reload();
+    await waitForAppReady(page);
+
+    // Wait for auto-expand to happen
+    await page.waitForTimeout(1000);
+
+    // nested.md should be visible and highlighted (parent folder should have auto-expanded)
+    const nestedRow = page.locator('.truncate').getByText('nested.md', { exact: true }).locator('..');
+    await expect(page.locator('.truncate').getByText('nested.md', { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(nestedRow).toHaveClass(/bg-blue-100/);
+  });
 });
 
 test.describe('Makora Images', () => {
