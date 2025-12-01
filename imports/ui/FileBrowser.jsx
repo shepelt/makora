@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Meteor } from 'meteor/meteor';
+import { FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
 
 function ContextMenu({ x, y, onClose, onOpenNewTab }) {
   // Close menu when clicking outside
@@ -65,9 +66,11 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, load
         ) : (
           <span className="w-4" />
         )}
-        <span className="text-sm">
-          {isDirectory ? '📁' : '📄'}
-        </span>
+        {isDirectory ? (
+          <FolderIcon className="w-4 h-4 text-gray-500" />
+        ) : (
+          <DocumentIcon className="w-4 h-4 text-gray-400" />
+        )}
         <span className="flex-1 truncate text-sm">{item.basename}</span>
       </div>
       {isExpanded && childItems && childItems.map((child) => (
@@ -286,7 +289,7 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
       {/* Header */}
       <div className="p-2 border-b bg-white flex items-center gap-2">
         <span className="text-sm font-medium text-gray-700 flex-1 flex items-center gap-1">
-          <span>📁</span>
+          <FolderIcon className="w-4 h-4 text-gray-500" />
           <span className="truncate">{normalizedBasePath === '/' ? 'Root' : normalizedBasePath.split('/').pop()}</span>
         </span>
         <SortDropdown value={sortOrder} onChange={handleSortChange} />

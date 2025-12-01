@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.23.5",
+    "@heroicons/react": "^2.2.0",
     "@muyajs/core": "file:../muya-fork/packages/core",
     "@swc/helpers": "^0.5.17",
     "marked": "^17.0.1",
