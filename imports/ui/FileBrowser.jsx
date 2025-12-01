@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Meteor } from 'meteor/meteor';
+import { useTracker } from 'meteor/react-meteor-data';
 import { FolderIcon, DocumentIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { FileItems } from '../api/collections';
 
 // Modal dialog component
 function Modal({ title, children, onClose }) {
@@ -167,7 +169,7 @@ function ContextMenu({ x, y, item, onClose, onOpenNewTab, onRename, onDelete, on
   );
 }
 
-function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, loadChildren, children: childItems, onContextMenu, currentFilePath }) {
+function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onContextMenu, currentFilePath, children: childItems }) {
   const isExpanded = expandedPaths.has(item.filename);
   const isDirectory = item.type === 'directory';
   const isLoading = expandedPaths.get(item.filename) === 'loading';
@@ -222,7 +224,6 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, load
           onFileSelect={onFileSelect}
           expandedPaths={expandedPaths}
           toggleExpand={toggleExpand}
-          loadChildren={loadChildren}
           children={child.children}
           onContextMenu={onContextMenu}
           currentFilePath={currentFilePath}
@@ -284,10 +285,28 @@ function SortDropdown({ value, onChange }) {
   );
 }
 
+// Helper to get parent directory of a path
+function getParentDir(filePath) {
+  const parts = filePath.split('/');
+  parts.pop();
+  return parts.join('/') || '/';
+}
+
+// Build sort object for Meteor collection query
+function getSortObject(sortOrder) {
+  const [field, direction] = sortOrder.split('-');
+  const dir = direction === 'desc' ? -1 : 1;
+
+  // Always sort directories first (type: 1 puts 'directory' before 'file')
+  if (field === 'name') {
+    return { type: 1, basename: dir };
+  } else {
+    return { type: 1, lastmod: dir };
+  }
+}
+
 export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
-  const [rootItems, setRootItems] = useState([]);
   const [expandedPaths, setExpandedPaths] = useState(new Map());
-  const [childrenCache, setChildrenCache] = useState(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
@@ -300,9 +319,13 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
   const [renameDialog, setRenameDialog] = useState(null);
   const [newFileDialog, setNewFileDialog] = useState(null);
   const [newFolderDialog, setNewFolderDialog] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Normalize basePath
   const normalizedBasePath = basePath.startsWith('/') ? basePath : `/${basePath}`;
+
+  // Compute sort object for queries
+  const sortObject = useMemo(() => getSortObject(sortOrder), [sortOrder]);
 
   // Save sort preference
   const handleSortChange = (value) => {
@@ -310,38 +333,16 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     localStorage.setItem('fileBrowserSort', value);
   };
 
-  // Sort function
-  const sortItems = useCallback((items) => {
-    const [field, direction] = sortOrder.split('-');
-    const sorted = [...items].sort((a, b) => {
-      // Folders always first
-      if (a.type !== b.type) {
-        return a.type === 'directory' ? -1 : 1;
-      }
+  // Use reactive query for root items
+  const rootItems = useTracker(() => {
+    return FileItems.find(
+      { parent: normalizedBasePath },
+      { sort: sortObject }
+    ).fetch();
+  }, [normalizedBasePath, sortObject]);
 
-      let cmp = 0;
-      if (field === 'name') {
-        cmp = a.basename.localeCompare(b.basename);
-      } else if (field === 'date') {
-        const dateA = a.lastmod ? new Date(a.lastmod).getTime() : 0;
-        const dateB = b.lastmod ? new Date(b.lastmod).getTime() : 0;
-        cmp = dateA - dateB;
-      }
-
-      return direction === 'desc' ? -cmp : cmp;
-    });
-    return sorted;
-  }, [sortOrder]);
-
-  // Load root directory on mount or when basePath changes
-  useEffect(() => {
-    setRootItems([]);
-    setExpandedPaths(new Map());
-    setChildrenCache(new Map());
-    loadDirectory(normalizedBasePath);
-  }, [normalizedBasePath]);
-
-  const loadDirectory = async (dirPath) => {
+  // Load directory from server and populate collection
+  const loadDirectory = useCallback(async (dirPath) => {
     const isRoot = dirPath === normalizedBasePath;
     if (isRoot) {
       setLoading(true);
@@ -353,10 +354,36 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
       // Filter out hidden files
       const filtered = result.filter(item => !item.basename.startsWith('.'));
 
-      if (isRoot) {
-        setRootItems(sortItems(filtered));
-      } else {
-        setChildrenCache(prev => new Map(prev).set(dirPath, sortItems(filtered)));
+      // Upsert items into collection
+      filtered.forEach(item => {
+        FileItems.upsert(
+          { filename: item.filename },
+          {
+            $set: {
+              filename: item.filename,
+              basename: item.basename,
+              type: item.type,
+              lastmod: item.lastmod,
+              parent: dirPath,
+            }
+          }
+        );
+      });
+
+      // Remove items that no longer exist on server
+      const serverFilenames = new Set(filtered.map(item => item.filename));
+      FileItems.find({ parent: dirPath }).forEach(item => {
+        if (!serverFilenames.has(item.filename)) {
+          FileItems.remove({ filename: item.filename });
+        }
+      });
+
+      // Mark directory as loaded
+      if (dirPath !== normalizedBasePath) {
+        FileItems.update(
+          { filename: dirPath },
+          { $set: { loaded: true } }
+        );
       }
 
       return filtered;
@@ -368,7 +395,15 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
         setLoading(false);
       }
     }
-  };
+  }, [normalizedBasePath]);
+
+  // Load root directory on mount or when basePath changes
+  useEffect(() => {
+    // Clear collection and expanded paths when basePath changes
+    FileItems.remove({});
+    setExpandedPaths(new Map());
+    loadDirectory(normalizedBasePath);
+  }, [normalizedBasePath, loadDirectory]);
 
   const toggleExpand = useCallback(async (path) => {
     setExpandedPaths(prev => {
@@ -383,8 +418,9 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
       return next;
     });
 
-    // If expanding and not cached, load children
-    if (!expandedPaths.has(path) && !childrenCache.has(path)) {
+    // If expanding and not loaded, load children
+    const item = FileItems.findOne({ filename: path });
+    if (!expandedPaths.has(path) && (!item || !item.loaded)) {
       await loadDirectory(path);
     }
 
@@ -396,24 +432,33 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
       }
       return next;
     });
-  }, [expandedPaths, childrenCache]);
+  }, [expandedPaths, loadDirectory]);
 
   const refresh = useCallback(() => {
-    setChildrenCache(new Map());
+    FileItems.remove({});
     setExpandedPaths(new Map());
     loadDirectory(normalizedBasePath);
-  }, [normalizedBasePath]);
+  }, [normalizedBasePath, loadDirectory]);
 
-  // Auto-expand folders to reveal the currently active file
+  // Track if we've done the initial auto-expand for the current file
+  const [autoExpandedForFile, setAutoExpandedForFile] = useState(null);
+
+  // Auto-expand folders to reveal the currently active file (only on initial load)
   useEffect(() => {
     if (!currentFilePath || !currentFilePath.startsWith(normalizedBasePath)) return;
+
+    // Only auto-expand once per file path (not on every render)
+    if (autoExpandedForFile === currentFilePath) return;
 
     // Get all ancestor directories between basePath and the file
     const relativePath = currentFilePath.slice(normalizedBasePath.length);
     const parts = relativePath.split('/').filter(Boolean);
     parts.pop(); // Remove the filename itself
 
-    if (parts.length === 0) return; // File is in root, no folders to expand
+    if (parts.length === 0) {
+      setAutoExpandedForFile(currentFilePath);
+      return; // File is in root, no folders to expand
+    }
 
     // Build list of ancestor paths to expand
     const ancestorPaths = [];
@@ -426,13 +471,9 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     // Expand each ancestor sequentially (need to load children)
     const expandAncestors = async () => {
       for (const ancestorPath of ancestorPaths) {
-        // Skip if already expanded
-        if (expandedPaths.has(ancestorPath) && expandedPaths.get(ancestorPath) !== 'loading') {
-          continue;
-        }
-
-        // Load children if not cached
-        if (!childrenCache.has(ancestorPath)) {
+        // Load children if not loaded
+        const item = FileItems.findOne({ filename: ancestorPath });
+        if (!item || !item.loaded) {
           await loadDirectory(ancestorPath);
         }
 
@@ -443,87 +484,11 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
           return next;
         });
       }
+      setAutoExpandedForFile(currentFilePath);
     };
 
     expandAncestors();
-  }, [currentFilePath, normalizedBasePath]);
-
-  // Helper to get parent directory of a path
-  const getParentDir = (filePath) => {
-    const parts = filePath.split('/');
-    parts.pop();
-    return parts.join('/') || '/';
-  };
-
-  // Helper to remove an item from the state (rootItems or childrenCache)
-  const removeItemFromState = useCallback((filePath) => {
-    const parentDir = getParentDir(filePath);
-    const isInRoot = parentDir === normalizedBasePath ||
-      (normalizedBasePath === '/' && parentDir === '');
-
-    if (isInRoot) {
-      setRootItems(prev => prev.filter(item => item.filename !== filePath));
-    } else {
-      setChildrenCache(prev => {
-        const next = new Map(prev);
-        const children = next.get(parentDir);
-        if (children) {
-          next.set(parentDir, children.filter(item => item.filename !== filePath));
-        }
-        return next;
-      });
-    }
-  }, [normalizedBasePath]);
-
-  // Helper to add an item to the state (with proper sorting)
-  const addItemToState = useCallback((parentDir, newItem) => {
-    const isInRoot = parentDir === normalizedBasePath ||
-      (normalizedBasePath === '/' && parentDir === '');
-
-    if (isInRoot) {
-      setRootItems(prev => sortItems([...prev, newItem]));
-    } else {
-      setChildrenCache(prev => {
-        const next = new Map(prev);
-        const children = next.get(parentDir) || [];
-        next.set(parentDir, sortItems([...children, newItem]));
-        return next;
-      });
-    }
-  }, [normalizedBasePath, sortItems]);
-
-  // Helper to update an item in the state (for rename)
-  const updateItemInState = useCallback((oldPath, newItem) => {
-    const oldParentDir = getParentDir(oldPath);
-    const newParentDir = getParentDir(newItem.filename);
-
-    // If moving between directories (shouldn't happen in rename, but handle it)
-    if (oldParentDir !== newParentDir) {
-      removeItemFromState(oldPath);
-      addItemToState(newParentDir, newItem);
-      return;
-    }
-
-    const isInRoot = oldParentDir === normalizedBasePath ||
-      (normalizedBasePath === '/' && oldParentDir === '');
-
-    if (isInRoot) {
-      setRootItems(prev => sortItems(
-        prev.map(item => item.filename === oldPath ? newItem : item)
-      ));
-    } else {
-      setChildrenCache(prev => {
-        const next = new Map(prev);
-        const children = next.get(oldParentDir);
-        if (children) {
-          next.set(oldParentDir, sortItems(
-            children.map(item => item.filename === oldPath ? newItem : item)
-          ));
-        }
-        return next;
-      });
-    }
-  }, [normalizedBasePath, sortItems, removeItemFromState, addItemToState]);
+  }, [currentFilePath, normalizedBasePath, autoExpandedForFile, loadDirectory]);
 
   const handleContextMenu = (e, item) => {
     setContextMenu({
@@ -540,8 +505,6 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     setContextMenu(null);
   };
 
-  const [deleting, setDeleting] = useState(false);
-
   const handleDelete = async () => {
     const item = deleteDialog;
     if (!item || deleting) return;
@@ -550,7 +513,13 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     try {
       await Meteor.callAsync('webdav.delete', item.filename);
       setDeleteDialog(null);
-      removeItemFromState(item.filename);
+
+      // Remove from collection
+      FileItems.remove({ filename: item.filename });
+      // Also remove children if it's a directory
+      if (item.type === 'directory') {
+        FileItems.remove({ parent: { $regex: `^${item.filename}` } });
+      }
     } catch (err) {
       alert(`Failed to delete: ${err.reason || err.message}`);
     } finally {
@@ -563,22 +532,23 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     if (!item) return;
 
     // Get parent directory
-    const parts = item.filename.split('/');
-    parts.pop();
-    const parentDir = parts.join('/') || '/';
+    const parentDir = getParentDir(item.filename);
     const newPath = `${parentDir}/${newName}`;
 
     await Meteor.callAsync('webdav.move', item.filename, newPath);
     setRenameDialog(null);
 
-    // Update local state with new item data
-    const updatedItem = {
-      ...item,
-      filename: newPath,
-      basename: newName,
-      lastmod: new Date().toISOString()
-    };
-    updateItemInState(item.filename, updatedItem);
+    // Update in collection
+    FileItems.update(
+      { filename: item.filename },
+      {
+        $set: {
+          filename: newPath,
+          basename: newName,
+          lastmod: new Date().toISOString()
+        }
+      }
+    );
   };
 
   const handleNewFile = async (name) => {
@@ -592,14 +562,14 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     await Meteor.callAsync('webdav.createFile', newPath, `# ${name.replace('.md', '')}\n\n`);
     setNewFileDialog(null);
 
-    // Add new file to local state
-    const newItem = {
+    // Add to collection
+    FileItems.insert({
       filename: newPath,
       basename: filename,
       type: 'file',
-      lastmod: new Date().toISOString()
-    };
-    addItemToState(parentDir || '/', newItem);
+      lastmod: new Date().toISOString(),
+      parent: parentDir || normalizedBasePath,
+    });
 
     // Open the new file
     onFileSelect?.({ filename: newPath, basename: filename, type: 'file' });
@@ -613,32 +583,41 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
     await Meteor.callAsync('webdav.createDirectory', newPath);
     setNewFolderDialog(null);
 
-    // Add new folder to local state
-    const newItem = {
+    // Add to collection
+    FileItems.insert({
       filename: newPath,
       basename: name,
       type: 'directory',
-      lastmod: new Date().toISOString()
-    };
-    addItemToState(parentDir || '/', newItem);
+      lastmod: new Date().toISOString(),
+      parent: parentDir || normalizedBasePath,
+      loaded: false,
+    });
   };
 
   const handleNewFileInRoot = () => {
     setNewFileDialog(normalizedBasePath === '/' ? '' : normalizedBasePath);
   };
 
-  // Build tree with children (sorted)
-  const getItemWithChildren = (item) => {
-    if (item.type === 'directory' && childrenCache.has(item.filename)) {
-      return {
-        ...item,
-        children: sortItems(childrenCache.get(item.filename)).map(getItemWithChildren)
-      };
-    }
-    return item;
-  };
-
-  const treeItems = sortItems(rootItems).map(getItemWithChildren);
+  // Build tree with children reactively
+  // Using useTracker ensures the tree rebuilds when any FileItems change
+  const treeItems = useTracker(() => {
+    const buildTree = (items) => {
+      return items.map(item => {
+        if (item.type === 'directory' && expandedPaths.has(item.filename)) {
+          const children = FileItems.find(
+            { parent: item.filename },
+            { sort: sortObject }
+          ).fetch();
+          return {
+            ...item,
+            children: buildTree(children)
+          };
+        }
+        return item;
+      });
+    };
+    return buildTree(rootItems);
+  }, [expandedPaths, sortObject, rootItems]);
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
@@ -687,7 +666,6 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
             onFileSelect={onFileSelect}
             expandedPaths={expandedPaths}
             toggleExpand={toggleExpand}
-            loadChildren={loadDirectory}
             children={item.children}
             onContextMenu={handleContextMenu}
             currentFilePath={currentFilePath}

@@ -829,7 +829,8 @@ test.describe('Makora File Management', () => {
     await expect(input).not.toBeVisible({ timeout: 10000 });
 
     // The file should be created and opened - check header shows the filename
-    await expect(page.getByText(`${filename}.md`)).toBeVisible({ timeout: 10000 });
+    // Use .first() since file may appear in both header and file browser (if parent is auto-expanded)
+    await expect(page.getByText(`${filename}.md`).first()).toBeVisible({ timeout: 10000 });
 
     // Clean up - delete the created file via clicking refresh then using context menu
     await page.getByTitle('Refresh').click();
