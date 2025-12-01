@@ -351,8 +351,12 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
 
     try {
       const result = await Meteor.callAsync('webdav.list', dirPath);
-      // Filter out hidden files
-      const filtered = result.filter(item => !item.basename.startsWith('.'));
+      // Filter out hidden files and non-markdown files (keep directories)
+      const filtered = result.filter(item => {
+        if (item.basename.startsWith('.')) return false;
+        if (item.type === 'directory') return true;
+        return item.basename.endsWith('.md');
+      });
 
       // Upsert items into collection
       filtered.forEach(item => {
