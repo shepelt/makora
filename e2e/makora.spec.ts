@@ -739,6 +739,62 @@ test.describe('Makora Keyboard Shortcuts', () => {
   });
 });
 
+test.describe('Makora Lists', () => {
+  test('new bullet list should be tight (no blank lines between items)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Click in editor and create a new bullet list
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\n* First item');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Second item');
+    await page.waitForTimeout(200);
+
+    // Verify the newly created list has mu-tight-list class (Typora default behavior)
+    // In Typora, new lists are tight by default (no blank lines between items)
+    // Use .last() to get the newly created list (not the existing one in test.md)
+    const bulletList = page.locator('.mu-editor .mu-bullet-list').last();
+    await expect(bulletList).toBeVisible({ timeout: 5000 });
+
+    // Check that it has the tight-list class
+    await expect(bulletList).toHaveClass(/mu-tight-list/);
+  });
+
+  test('new ordered list should be tight (no blank lines between items)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Click in editor and create a new ordered list
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\n1. First numbered');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Second numbered');
+    await page.waitForTimeout(200);
+
+    // Verify the list has mu-tight-list class
+    const orderedList = page.locator('.mu-editor .mu-order-list');
+    await expect(orderedList).toBeVisible({ timeout: 5000 });
+
+    // Check that it has the tight-list class
+    await expect(orderedList).toHaveClass(/mu-tight-list/);
+  });
+});
+
 test.describe('Makora Images', () => {
   const imageTestFilePath = resolve('./tests/fixtures/webdav/image-test.md');
   let originalImageContent: string;

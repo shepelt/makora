@@ -2,7 +2,7 @@
   "name": "makora",
   "private": true,
   "scripts": {
-    "start": "meteor run --settings settings-local.json --port 4000",
+    "start": "dotenv -- meteor run --settings settings-local.json --port 4000",
     "test": "npx playwright test",
     "test:ui": "npx playwright test --ui",
     "test:unit": "meteor test --once --driver-package meteortesting:mocha --settings settings-local.json",
