@@ -1,8 +1,113 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Meteor } from 'meteor/meteor';
-import { FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, DocumentIcon, PlusIcon } from '@heroicons/react/24/outline';
 
-function ContextMenu({ x, y, onClose, onOpenNewTab }) {
+// Modal dialog component
+function Modal({ title, children, onClose }) {
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl p-4 w-80 max-w-[90vw]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium mb-4">{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Confirmation dialog
+function ConfirmDialog({ title, message, onConfirm, onCancel, confirmText = 'Delete', danger = false }) {
+  return (
+    <Modal title={title} onClose={onCancel}>
+      <p className="text-sm text-gray-600 mb-4">{message}</p>
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          className={`px-3 py-1.5 text-sm text-white rounded ${danger ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+        >
+          {confirmText}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// Input dialog for rename/new file
+function InputDialog({ title, initialValue = '', placeholder, onSubmit, onCancel, submitText = 'Create' }) {
+  const [value, setValue] = useState(initialValue);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!value.trim()) {
+      setError('Name cannot be empty');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await onSubmit(value.trim());
+    } catch (err) {
+      setError(err.reason || err.message);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal title={title} onClose={onCancel}>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          className="w-full px-3 py-2 border border-gray-300 rounded text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          autoFocus
+          disabled={loading}
+        />
+        {error && <p className="text-sm text-red-500 mb-2">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+            disabled={loading}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50"
+            disabled={loading || !value.trim()}
+          >
+            {loading ? 'Working...' : submitText}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ContextMenu({ x, y, item, onClose, onOpenNewTab, onRename, onDelete, onNewFile, onNewFolder }) {
+  const isDirectory = item?.type === 'directory';
+
   // Close menu when clicking outside
   useEffect(() => {
     const handleClick = () => onClose();
@@ -10,16 +115,51 @@ function ContextMenu({ x, y, onClose, onOpenNewTab }) {
     return () => document.removeEventListener('click', handleClick);
   }, [onClose]);
 
+  // Adjust position if menu would go off screen
+  const menuStyle = {
+    left: Math.min(x, window.innerWidth - 160),
+    top: Math.min(y, window.innerHeight - (isDirectory ? 200 : 120)),
+  };
+
   return (
     <div
-      className="fixed bg-white border border-gray-200 rounded shadow-lg py-1 z-50"
-      style={{ left: x, top: y }}
+      className="fixed bg-white border border-gray-200 rounded shadow-lg py-1 z-50 min-w-[140px]"
+      style={menuStyle}
     >
+      {isDirectory && (
+        <>
+          <button
+            onClick={onOpenNewTab}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+          >
+            Open in new tab
+          </button>
+          <button
+            onClick={onNewFile}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+          >
+            New file
+          </button>
+          <button
+            onClick={onNewFolder}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+          >
+            New folder
+          </button>
+          <div className="border-t border-gray-200 my-1" />
+        </>
+      )}
       <button
-        onClick={onOpenNewTab}
+        onClick={onRename}
         className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
       >
-        Open in new tab
+        Rename
+      </button>
+      <button
+        onClick={onDelete}
+        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 text-red-600"
+      >
+        Delete
       </button>
     </div>
   );
@@ -39,10 +179,8 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, load
   };
 
   const handleContextMenu = (e) => {
-    if (isDirectory) {
-      e.preventDefault();
-      onContextMenu?.(e, item);
-    }
+    e.preventDefault();
+    onContextMenu?.(e, item);
   };
 
   return (
@@ -142,7 +280,7 @@ function SortDropdown({ value, onChange }) {
   );
 }
 
-export function FileBrowser({ onFileSelect, basePath = '/' }) {
+export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath }) {
   const [rootItems, setRootItems] = useState([]);
   const [expandedPaths, setExpandedPaths] = useState(new Map());
   const [childrenCache, setChildrenCache] = useState(new Map());
@@ -152,6 +290,12 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
   const [sortOrder, setSortOrder] = useState(() => {
     return localStorage.getItem('fileBrowserSort') || 'name-asc';
   });
+
+  // Dialog states
+  const [deleteDialog, setDeleteDialog] = useState(null);
+  const [renameDialog, setRenameDialog] = useState(null);
+  const [newFileDialog, setNewFileDialog] = useState(null);
+  const [newFolderDialog, setNewFolderDialog] = useState(null);
 
   // Normalize basePath
   const normalizedBasePath = basePath.startsWith('/') ? basePath : `/${basePath}`;
@@ -250,11 +394,11 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
     });
   }, [expandedPaths, childrenCache]);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     setChildrenCache(new Map());
     setExpandedPaths(new Map());
     loadDirectory(normalizedBasePath);
-  };
+  }, [normalizedBasePath]);
 
   const handleContextMenu = (e, item) => {
     setContextMenu({
@@ -269,6 +413,64 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
       window.open(`?path=${encodeURIComponent(contextMenu.item.filename)}`, '_blank');
     }
     setContextMenu(null);
+  };
+
+  const handleDelete = async () => {
+    const item = deleteDialog;
+    if (!item) return;
+
+    try {
+      await Meteor.callAsync('webdav.delete', item.filename);
+      setDeleteDialog(null);
+      refresh();
+    } catch (err) {
+      alert(`Failed to delete: ${err.reason || err.message}`);
+    }
+  };
+
+  const handleRename = async (newName) => {
+    const item = renameDialog;
+    if (!item) return;
+
+    // Get parent directory
+    const parts = item.filename.split('/');
+    parts.pop();
+    const parentDir = parts.join('/') || '/';
+    const newPath = `${parentDir}/${newName}`;
+
+    await Meteor.callAsync('webdav.move', item.filename, newPath);
+    setRenameDialog(null);
+    refresh();
+  };
+
+  const handleNewFile = async (name) => {
+    const parentDir = newFileDialog;
+    if (parentDir === null) return;
+
+    // Ensure .md extension
+    const filename = name.endsWith('.md') ? name : `${name}.md`;
+    const newPath = `${parentDir}/${filename}`;
+
+    await Meteor.callAsync('webdav.createFile', newPath, `# ${name.replace('.md', '')}\n\n`);
+    setNewFileDialog(null);
+    refresh();
+
+    // Open the new file
+    onFileSelect?.({ filename: newPath, basename: filename, type: 'file' });
+  };
+
+  const handleNewFolder = async (name) => {
+    const parentDir = newFolderDialog;
+    if (!parentDir) return;
+
+    const newPath = `${parentDir}/${name}`;
+    await Meteor.callAsync('webdav.createDirectory', newPath);
+    setNewFolderDialog(null);
+    refresh();
+  };
+
+  const handleNewFileInRoot = () => {
+    setNewFileDialog(normalizedBasePath === '/' ? '' : normalizedBasePath);
   };
 
   // Build tree with children (sorted)
@@ -292,6 +494,13 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
           <FolderIcon className="w-4 h-4 text-gray-500" />
           <span className="truncate">{normalizedBasePath === '/' ? 'Root' : normalizedBasePath.split('/').pop()}</span>
         </span>
+        <button
+          onClick={handleNewFileInRoot}
+          className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+          title="New file"
+        >
+          <PlusIcon className="w-4 h-4" />
+        </button>
         <SortDropdown value={sortOrder} onChange={handleSortChange} />
         <button
           onClick={refresh}
@@ -336,8 +545,74 @@ export function FileBrowser({ onFileSelect, basePath = '/' }) {
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          item={contextMenu.item}
           onClose={() => setContextMenu(null)}
           onOpenNewTab={handleOpenNewTab}
+          onRename={() => {
+            setRenameDialog(contextMenu.item);
+            setContextMenu(null);
+          }}
+          onDelete={() => {
+            setDeleteDialog(contextMenu.item);
+            setContextMenu(null);
+          }}
+          onNewFile={() => {
+            setNewFileDialog(contextMenu.item.filename);
+            setContextMenu(null);
+          }}
+          onNewFolder={() => {
+            setNewFolderDialog(contextMenu.item.filename);
+            setContextMenu(null);
+          }}
+        />
+      )}
+
+      {/* Delete confirmation dialog */}
+      {deleteDialog && (
+        <ConfirmDialog
+          title={`Delete ${deleteDialog.type === 'directory' ? 'folder' : 'file'}?`}
+          message={
+            deleteDialog.type === 'directory'
+              ? `Are you sure you want to delete "${deleteDialog.basename}" and all its contents?`
+              : `Are you sure you want to delete "${deleteDialog.basename}"?`
+          }
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteDialog(null)}
+          danger
+        />
+      )}
+
+      {/* Rename dialog */}
+      {renameDialog && (
+        <InputDialog
+          title={`Rename ${renameDialog.type === 'directory' ? 'folder' : 'file'}`}
+          initialValue={renameDialog.basename}
+          placeholder="New name"
+          onSubmit={handleRename}
+          onCancel={() => setRenameDialog(null)}
+          submitText="Rename"
+        />
+      )}
+
+      {/* New file dialog */}
+      {newFileDialog !== null && (
+        <InputDialog
+          title="New file"
+          placeholder="filename.md"
+          onSubmit={handleNewFile}
+          onCancel={() => setNewFileDialog(null)}
+          submitText="Create"
+        />
+      )}
+
+      {/* New folder dialog */}
+      {newFolderDialog !== null && (
+        <InputDialog
+          title="New folder"
+          placeholder="Folder name"
+          onSubmit={handleNewFolder}
+          onCancel={() => setNewFolderDialog(null)}
+          submitText="Create"
         />
       )}
     </div>

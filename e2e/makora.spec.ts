@@ -795,6 +795,288 @@ test.describe('Makora Lists', () => {
   });
 });
 
+test.describe('Makora File Management', () => {
+  // Test file management features: create, rename, delete
+
+  // Helper to get context menu button by role
+  const getContextMenuItem = (page: Page, name: string) =>
+    page.locator('.fixed.bg-white.rounded.shadow-lg button').getByText(name, { exact: true });
+
+  test('creates new file via context menu on directory', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Right-click on Subfolder to open context menu
+    await page.getByText('Subfolder').click({ button: 'right' });
+    await expect(getContextMenuItem(page, 'New file')).toBeVisible();
+
+    // Click "New file"
+    await getContextMenuItem(page, 'New file').click();
+
+    // Dialog should appear
+    const input = page.locator('input[placeholder="filename.md"]');
+    await expect(input).toBeVisible();
+
+    // Enter filename
+    const timestamp = Date.now();
+    const filename = `test-created-${timestamp}`;
+    await input.fill(filename);
+
+    // Click Create
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    // Wait for dialog to close and file to appear
+    await expect(input).not.toBeVisible({ timeout: 10000 });
+
+    // The file should be created and opened - check header shows the filename
+    await expect(page.getByText(`${filename}.md`)).toBeVisible({ timeout: 10000 });
+
+    // Clean up - delete the created file via clicking refresh then using context menu
+    await page.getByTitle('Refresh').click();
+    await page.waitForTimeout(500);
+
+    // Expand Subfolder to see the file
+    await page.getByText('Subfolder').click();
+    await expect(page.locator('.truncate').getByText(`${filename}.md`)).toBeVisible({ timeout: 5000 });
+
+    // Right-click to delete
+    await page.locator('.truncate').getByText(`${filename}.md`).click({ button: 'right' });
+    await getContextMenuItem(page, 'Delete').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+
+    // Verify file is gone
+    await expect(page.locator('.truncate').getByText(`${filename}.md`)).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('creates new folder via context menu', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Right-click on Subfolder
+    await page.getByText('Subfolder').click({ button: 'right' });
+    await expect(getContextMenuItem(page, 'New folder')).toBeVisible();
+
+    // Click "New folder"
+    await getContextMenuItem(page, 'New folder').click();
+
+    // Dialog should appear
+    const input = page.locator('input[placeholder="Folder name"]');
+    await expect(input).toBeVisible();
+
+    // Enter folder name
+    const timestamp = Date.now();
+    const folderName = `test-folder-${timestamp}`;
+    await input.fill(folderName);
+
+    // Click Create
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    // Wait for dialog to close
+    await expect(input).not.toBeVisible({ timeout: 10000 });
+
+    // Expand Subfolder to see the new folder
+    await page.getByText('Subfolder').click();
+    await expect(page.locator('.truncate').getByText(folderName, { exact: true })).toBeVisible({ timeout: 5000 });
+
+    // Clean up - delete the folder
+    await page.locator('.truncate').getByText(folderName, { exact: true }).click({ button: 'right' });
+    await getContextMenuItem(page, 'Delete').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+
+    // Verify folder is gone
+    await expect(page.locator('.truncate').getByText(folderName, { exact: true })).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('renames file via context menu', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // First create a test file to rename
+    await page.getByText('Subfolder').click({ button: 'right' });
+    await getContextMenuItem(page, 'New file').click();
+    const input = page.locator('input[placeholder="filename.md"]');
+    const timestamp = Date.now();
+    const originalName = `rename-test-${timestamp}`;
+    await input.fill(originalName);
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(input).not.toBeVisible({ timeout: 10000 });
+
+    // Refresh and expand Subfolder to see the file
+    await page.getByTitle('Refresh').click();
+    await page.waitForTimeout(500);
+    await page.getByText('Subfolder').click();
+    await expect(page.locator('.truncate').getByText(`${originalName}.md`)).toBeVisible({ timeout: 5000 });
+
+    // Right-click on the file to rename
+    await page.locator('.truncate').getByText(`${originalName}.md`).click({ button: 'right' });
+    await expect(getContextMenuItem(page, 'Rename')).toBeVisible();
+    await getContextMenuItem(page, 'Rename').click();
+
+    // Rename dialog should appear with current name
+    const renameInput = page.locator('input[placeholder="New name"]');
+    await expect(renameInput).toBeVisible();
+    await expect(renameInput).toHaveValue(`${originalName}.md`);
+
+    // Enter new name
+    const newName = `renamed-${timestamp}.md`;
+    await renameInput.fill(newName);
+    await page.getByRole('button', { name: 'Rename' }).click();
+
+    // Wait for dialog to close
+    await expect(renameInput).not.toBeVisible({ timeout: 10000 });
+
+    // Verify old name is gone and new name exists (after refresh)
+    await page.getByTitle('Refresh').click();
+    await page.waitForTimeout(500);
+    await page.getByText('Subfolder').click();
+    await expect(page.locator('.truncate').getByText(`${originalName}.md`)).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.truncate').getByText(newName)).toBeVisible({ timeout: 5000 });
+
+    // Clean up - delete the renamed file
+    await page.locator('.truncate').getByText(newName).click({ button: 'right' });
+    await getContextMenuItem(page, 'Delete').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+  });
+
+  test('deletes file via context menu with confirmation', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // First create a test file to delete
+    await page.getByText('Subfolder').click({ button: 'right' });
+    await getContextMenuItem(page, 'New file').click();
+    const input = page.locator('input[placeholder="filename.md"]');
+    const timestamp = Date.now();
+    const filename = `delete-test-${timestamp}`;
+    await input.fill(filename);
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(input).not.toBeVisible({ timeout: 10000 });
+
+    // Refresh and expand Subfolder to see the file
+    await page.getByTitle('Refresh').click();
+    await page.waitForTimeout(500);
+    await page.getByText('Subfolder').click();
+    await expect(page.locator('.truncate').getByText(`${filename}.md`)).toBeVisible({ timeout: 5000 });
+
+    // Right-click on the file
+    await page.locator('.truncate').getByText(`${filename}.md`).click({ button: 'right' });
+
+    // Click Delete in context menu
+    await getContextMenuItem(page, 'Delete').click();
+
+    // Confirmation dialog should appear
+    await expect(page.getByText('Delete file?')).toBeVisible();
+    await expect(page.getByText(`Are you sure you want to delete "${filename}.md"?`)).toBeVisible();
+
+    // Click Delete button in dialog
+    await page.getByRole('button', { name: 'Delete' }).click();
+
+    // File should be gone
+    await expect(page.locator('.truncate').getByText(`${filename}.md`)).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('cancels delete operation', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Right-click on an existing file (use locator for file browser item)
+    await page.locator('.truncate').getByText('test.md', { exact: true }).click({ button: 'right' });
+
+    // Click Delete
+    await getContextMenuItem(page, 'Delete').click();
+
+    // Confirmation dialog should appear
+    await expect(page.getByText('Delete file?')).toBeVisible();
+
+    // Click Cancel
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    // Dialog should close
+    await expect(page.getByText('Delete file?')).not.toBeVisible();
+
+    // File should still exist
+    await expect(page.locator('.truncate').getByText('test.md', { exact: true })).toBeVisible();
+  });
+
+  test('creates new file via + button in header', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Click the + button in the header
+    await page.getByTitle('New file').click();
+
+    // Dialog should appear
+    const input = page.locator('input[placeholder="filename.md"]');
+    await expect(input).toBeVisible();
+
+    // Enter filename
+    const timestamp = Date.now();
+    const filename = `header-created-${timestamp}`;
+    await input.fill(filename);
+
+    // Click Create
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    // Wait for dialog to close - use longer timeout and check for success
+    await page.waitForTimeout(1000);
+
+    // Check for error message - if there's an error, log it
+    const errorMsg = page.locator('.text-red-500');
+    const hasError = await errorMsg.count() > 0;
+    if (hasError) {
+      const errorText = await errorMsg.textContent();
+      console.log('Error creating file:', errorText);
+    }
+
+    // Wait for either dialog to close OR file to appear (use first() since it appears in header and file browser)
+    await expect(page.getByText(`${filename}.md`).first()).toBeVisible({ timeout: 15000 });
+
+    // Clean up - delete the created file (refresh first)
+    await page.getByTitle('Refresh').click();
+    await page.waitForTimeout(500);
+    await page.locator('.truncate').getByText(`${filename}.md`).click({ button: 'right' });
+    await getContextMenuItem(page, 'Delete').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+  });
+
+  test('shows context menu for files (not just directories)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Right-click on test.md (a file, not directory) - use locator for file browser
+    await page.locator('.truncate').getByText('test.md', { exact: true }).click({ button: 'right' });
+
+    // Context menu should show Rename and Delete for files
+    await expect(getContextMenuItem(page, 'Rename')).toBeVisible();
+    await expect(getContextMenuItem(page, 'Delete')).toBeVisible();
+
+    // But NOT directory-specific options
+    await expect(page.locator('.fixed.bg-white.rounded.shadow-lg').getByText('Open in new tab')).not.toBeVisible();
+    await expect(page.locator('.fixed.bg-white.rounded.shadow-lg').getByText('New file')).not.toBeVisible();
+    await expect(page.locator('.fixed.bg-white.rounded.shadow-lg').getByText('New folder')).not.toBeVisible();
+
+    // Close context menu by clicking elsewhere (escape doesn't work for context menu)
+    await page.click('body', { position: { x: 10, y: 10 } });
+    await expect(getContextMenuItem(page, 'Rename')).not.toBeVisible();
+  });
+
+  test('escape key closes dialogs', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open new file dialog
+    await page.getByTitle('New file').click();
+    const input = page.locator('input[placeholder="filename.md"]');
+    await expect(input).toBeVisible();
+
+    // Press Escape
+    await page.keyboard.press('Escape');
+
+    // Dialog should close
+    await expect(input).not.toBeVisible({ timeout: 2000 });
+  });
+});
+
 test.describe('Makora Images', () => {
   const imageTestFilePath = resolve('./tests/fixtures/webdav/image-test.md');
   let originalImageContent: string;

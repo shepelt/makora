@@ -572,4 +572,123 @@ Meteor.methods({
       throw new Meteor.Error('webdav-error', err.message);
     }
   },
+
+  async 'webdav.delete'(path) {
+    requireAuth();
+    const { baseUrl, auth } = await getConfig();
+    const url = baseUrl + (path.startsWith('/') ? path : '/' + path);
+
+    try {
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Authorization': auth },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return { success: true };
+    } catch (err) {
+      throw new Meteor.Error('webdav-error', err.message);
+    }
+  },
+
+  async 'webdav.move'(fromPath, toPath) {
+    requireAuth();
+    const { baseUrl, auth } = await getConfig();
+    const fromUrl = baseUrl + (fromPath.startsWith('/') ? fromPath : '/' + fromPath);
+    const toUrl = baseUrl + (toPath.startsWith('/') ? toPath : '/' + toPath);
+
+    try {
+      const response = await fetch(fromUrl, {
+        method: 'MOVE',
+        headers: {
+          'Authorization': auth,
+          'Destination': toUrl,
+          'Overwrite': 'F', // Don't overwrite existing files
+        },
+      });
+
+      if (response.status === 412) {
+        throw new Meteor.Error('file-exists', 'A file with that name already exists');
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return { success: true };
+    } catch (err) {
+      if (err instanceof Meteor.Error) throw err;
+      throw new Meteor.Error('webdav-error', err.message);
+    }
+  },
+
+  async 'webdav.createFile'(path, content = '') {
+    requireAuth();
+    const { baseUrl, auth } = await getConfig();
+    const url = baseUrl + (path.startsWith('/') ? path : '/' + path);
+
+    // First check if file exists
+    try {
+      const checkResponse = await fetch(url, {
+        method: 'HEAD',
+        headers: { 'Authorization': auth },
+      });
+
+      if (checkResponse.ok) {
+        throw new Meteor.Error('file-exists', 'A file with that name already exists');
+      }
+    } catch (err) {
+      if (err instanceof Meteor.Error) throw err;
+      // 404 is expected - file doesn't exist, proceed with creation
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Authorization': auth,
+          'Content-Type': 'text/plain; charset=utf-8',
+        },
+        body: content,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return { success: true };
+    } catch (err) {
+      if (err instanceof Meteor.Error) throw err;
+      throw new Meteor.Error('webdav-error', err.message);
+    }
+  },
+
+  async 'webdav.createDirectory'(path) {
+    requireAuth();
+    const { baseUrl, auth } = await getConfig();
+    const url = baseUrl + (path.startsWith('/') ? path : '/' + path);
+
+    try {
+      const response = await fetch(url, {
+        method: 'MKCOL',
+        headers: { 'Authorization': auth },
+      });
+
+      if (response.status === 405) {
+        throw new Meteor.Error('folder-exists', 'A folder with that name already exists');
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return { success: true };
+    } catch (err) {
+      if (err instanceof Meteor.Error) throw err;
+      throw new Meteor.Error('webdav-error', err.message);
+    }
+  },
 });
