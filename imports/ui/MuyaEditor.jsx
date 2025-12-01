@@ -9,7 +9,7 @@ if (!Muya.plugins?.length) {
   Muya.use(CodeBlockLanguageSelector);
 }
 
-export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onChange, onDirtyChange, onReady }, ref) {
+export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onDirtyChange, onReady }, ref) {
   const containerRef = useRef(null);
   const muyaRef = useRef(null);
   const lastDirtyRef = useRef(false);
@@ -40,8 +40,7 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
     cleanUndoLengthRef.current = muya.editor.history._stack?.undo?.length || 0;
     cleanRedoLengthRef.current = muya.editor.history._stack?.redo?.length || 0;
 
-    // Notify parent of initial state
-    onChange?.(muya.getMarkdown());
+    // Notify parent of initial dirty state (no serialization needed)
     onDirtyChange?.(false);
 
     // Signal that editor is ready after content has actually rendered
@@ -72,15 +71,12 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
     // Start checking after init completes
     requestAnimationFrame(waitForContent);
 
-    // Listen for content changes
+    // Listen for content changes - O(1) dirty check using history stack lengths
+    // (no serialization needed - content is fetched on-demand via getContent())
     muya.on('json-change', () => {
-      // Notify parent of content change
-      onChange?.(muya.getMarkdown());
-
-      // Check dirty state - stack is already modified before json-change is emitted
-      // (History._change modifies stack then calls updateContents which emits json-change)
       if (!muyaRef.current) return;
 
+      // O(1) dirty check: compare history stack lengths
       const undoLen = muya.editor.history._stack?.undo?.length || 0;
       const redoLen = muya.editor.history._stack?.redo?.length || 0;
       const isDirty = undoLen !== cleanUndoLengthRef.current || redoLen !== cleanRedoLengthRef.current;

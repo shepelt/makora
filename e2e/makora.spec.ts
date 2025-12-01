@@ -473,12 +473,20 @@ test.describe.serial('Makora Editing', () => {
 
 test.describe('Makora Performance', () => {
   test('typing in large file should have low latency', async ({ page }) => {
+    // Capture browser console logs
+    const consoleLogs: string[] = [];
+    page.on('console', msg => {
+      if (msg.text().includes('[PERF]')) {
+        consoleLogs.push(msg.text());
+      }
+    });
+
     await page.goto('/');
     await waitForAppReady(page);
 
-    // Open the large test file
-    await page.getByText('large-test.md').click();
-    await expect(page.getByText('Large Test Document')).toBeVisible({ timeout: 10000 });
+    // Open the large test file (~450KB)
+    await page.getByText('large-perf-test.md').click();
+    await expect(page.getByText('Large Performance Test Document')).toBeVisible({ timeout: 30000 });
 
     // Wait for editor to fully initialize
     await page.waitForTimeout(500);
@@ -487,21 +495,32 @@ test.describe('Makora Performance', () => {
     await editor.click();
     await page.keyboard.press('End');
 
-    // Measure time to type 20 characters
-    const charCount = 20;
-    const testString = 'PERF_TEST_STRING_123';
+    // Measure time to type characters one at a time (more accurate than bulk typing)
+    const charCount = 30;
+    const testChars = 'PERF_TEST_LARGE_FILE_LATENCY__';
 
-    const startTime = Date.now();
-    await page.keyboard.type(testString, { delay: 0 }); // Type as fast as possible
-    const endTime = Date.now();
+    const times: number[] = [];
+    for (let i = 0; i < charCount; i++) {
+      const start = Date.now();
+      await page.keyboard.type(testChars[i]);
+      times.push(Date.now() - start);
+    }
+
+    const totalTime = times.reduce((a, b) => a + b, 0);
+    const avgTimePerChar = totalTime / charCount;
+    const maxTime = Math.max(...times);
+    const minTime = Math.min(...times);
+
+    console.log(`Typing ${charCount} chars: total=${totalTime}ms, avg=${avgTimePerChar.toFixed(1)}ms/char, min=${minTime}ms, max=${maxTime}ms`);
+
+    // Print browser-side performance logs
+    if (consoleLogs.length > 0) {
+      console.log('Browser performance logs:');
+      consoleLogs.forEach(log => console.log('  ' + log));
+    }
 
     // Verify text was typed
-    await expect(page.getByText(testString)).toBeVisible();
-
-    const totalTime = endTime - startTime;
-    const avgTimePerChar = totalTime / charCount;
-
-    console.log(`Typing ${charCount} chars took ${totalTime}ms (avg ${avgTimePerChar.toFixed(1)}ms/char)`);
+    await expect(page.getByText(testChars)).toBeVisible({ timeout: 10000 });
 
     // Assert performance: should be under 50ms per character
     // This is a generous threshold - good performance would be <10ms
