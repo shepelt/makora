@@ -9,7 +9,7 @@ if (!Muya.plugins?.length) {
   Muya.use(CodeBlockLanguageSelector);
 }
 
-export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onDirtyChange, onReady }, ref) {
+export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onDirtyChange, onReady, onBlockChange }, ref) {
   const containerRef = useRef(null);
   const muyaRef = useRef(null);
   const lastDirtyRef = useRef(false);
@@ -71,9 +71,56 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
     // Start checking after init completes
     requestAnimationFrame(waitForContent);
 
+    // Helper to get current block info and notify parent
+    const notifyBlockChange = () => {
+      if (!onBlockChange || !muyaRef.current) return;
+
+      const selection = muya.editor.selection.getSelection();
+      const anchorBlock = selection?.anchorBlock;
+      const block = anchorBlock?.parent;
+
+      if (!block) {
+        onBlockChange({ headingLevel: null, listType: null });
+        return;
+      }
+
+      // Determine heading level
+      let headingLevel = null;
+      if (block.blockName === 'paragraph') {
+        headingLevel = 0;
+      } else if (block.blockName === 'atx-heading') {
+        // Get heading level from meta or block properties
+        headingLevel = block.meta?.level || parseInt(block.children?.[0]?.text?.match(/^#{1,6}/)?.[0]?.length) || 1;
+      }
+
+      // Determine list type by checking parent hierarchy
+      let listType = null;
+      let current = block;
+      while (current) {
+        if (current.blockName === 'bullet-list') {
+          listType = 'bullet-list';
+          break;
+        } else if (current.blockName === 'order-list') {
+          listType = 'order-list';
+          break;
+        } else if (current.blockName === 'task-list') {
+          listType = 'task-list';
+          break;
+        }
+        current = current.parent;
+      }
+
+      onBlockChange({ headingLevel, listType });
+    };
+
+    // Listen for selection changes
+    muya.on('selection-change', notifyBlockChange);
+
     // Listen for content changes - O(1) dirty check using history stack lengths
     // (no serialization needed - content is fetched on-demand via getContent())
     muya.on('json-change', () => {
+      // Also notify of block change (block type may have changed)
+      notifyBlockChange();
       if (!muyaRef.current) return;
 
       // O(1) dirty check: compare history stack lengths
@@ -264,6 +311,146 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
           lastDirtyRef.current = isDirty;
           onDirtyChange?.(isDirty);
         }
+      }
+    },
+    // Toolbar methods
+    format: (type) => {
+      // Apply inline format to current selection/word
+      // type can be: 'strong', 'em', 'u', 'inline_code', 'del'
+      const muya = muyaRef.current;
+      if (!muya) return;
+
+      const selection = muya.editor.selection.getSelection();
+      const block = selection?.anchorBlock;
+      if (block && typeof block.format === 'function') {
+        block.format(type);
+      }
+    },
+    setHeading: (level) => {
+      // Convert current block to heading of specified level (1-6) or paragraph (0)
+      const muya = muyaRef.current;
+      if (!muya) return;
+
+      // Flush any pending operations
+      muya.editor.jsonState.flush?.();
+
+      const selection = muya.editor.selection.getSelection();
+      const anchorBlock = selection?.anchorBlock;
+      const block = anchorBlock?.parent;
+
+      if (block) {
+        // Level 0 means paragraph
+        const label = level === 0 ? 'paragraph' : `atx-heading ${level}`;
+        // Get text content, stripping any existing heading markers
+        let rawText = block.children[0]?.text || '';
+        if (!rawText && anchorBlock?.domNode) {
+          rawText = anchorBlock.domNode.textContent || '';
+        }
+        const text = block.blockName === 'paragraph'
+          ? rawText
+          : rawText.replace(/^ {0,3}#{1,6}(?:\s+|$)/, '');
+
+        replaceBlockByLabel({ block, muya, label, text });
+      }
+    },
+    setList: (type) => {
+      // Convert current block to list (bullet-list, order-list, task-list) or paragraph
+      const muya = muyaRef.current;
+      if (!muya) return;
+
+      muya.editor.jsonState.flush?.();
+
+      const selection = muya.editor.selection.getSelection();
+      const anchorBlock = selection?.anchorBlock;
+      let block = anchorBlock?.parent;
+
+      if (!block) return;
+
+      // If converting to paragraph from a list, we need to find the list block
+      if (type === 'paragraph') {
+        // Find the list wrapper (bullet-list, order-list, task-list)
+        let list = block;
+        while (list && !['bullet-list', 'order-list', 'task-list'].includes(list.blockName)) {
+          list = list.parent;
+        }
+
+        if (list) {
+          // Get text from the current paragraph/content block
+          let text = block.children?.[0]?.text || '';
+          if (!text && anchorBlock?.domNode) {
+            text = anchorBlock.domNode.textContent || '';
+          }
+          // Replace the list with a paragraph
+          replaceBlockByLabel({ block: list, muya, label: 'paragraph', text });
+        }
+        return;
+      }
+
+      // Get text content
+      let rawText = block.children[0]?.text || '';
+      if (!rawText && anchorBlock?.domNode) {
+        rawText = anchorBlock.domNode.textContent || '';
+      }
+      // Strip heading markers if any
+      const text = block.blockName === 'paragraph'
+        ? rawText
+        : rawText.replace(/^ {0,3}#{1,6}(?:\s+|$)/, '');
+
+      replaceBlockByLabel({ block, muya, label: type, text });
+    },
+    indent: () => {
+      // Increase indent of current list item
+      const muya = muyaRef.current;
+      if (!muya) return;
+
+      const selection = muya.editor.selection.getSelection();
+      const anchorBlock = selection?.anchorBlock;
+
+      // indentListItem is a method on paragraph content blocks inside list items
+      if (anchorBlock && typeof anchorBlock._indentListItem === 'function') {
+        anchorBlock._indentListItem();
+      }
+    },
+    outdent: () => {
+      // Decrease indent of current list item
+      const muya = muyaRef.current;
+      if (!muya) return;
+
+      const selection = muya.editor.selection.getSelection();
+      const anchorBlock = selection?.anchorBlock;
+
+      // unindentListItem is a method on paragraph content blocks inside list items
+      if (anchorBlock && typeof anchorBlock._unindentListItem === 'function') {
+        anchorBlock._unindentListItem();
+      }
+    },
+    removeList: () => {
+      // Convert list item to paragraph
+      const muya = muyaRef.current;
+      if (!muya) return;
+
+      muya.editor.jsonState.flush?.();
+
+      const selection = muya.editor.selection.getSelection();
+      const anchorBlock = selection?.anchorBlock;
+      const block = anchorBlock?.parent;
+
+      if (!block) return;
+
+      // Find the list (not list-item) to get proper replacement
+      let list = block;
+      while (list && !['bullet-list', 'order-list', 'task-list'].includes(list.blockName)) {
+        list = list.parent;
+      }
+
+      if (list) {
+        // Get text from the current paragraph/content block
+        let text = block.children?.[0]?.text || '';
+        if (!text && anchorBlock?.domNode) {
+          text = anchorBlock.domNode.textContent || '';
+        }
+        // Replace the list with a paragraph
+        replaceBlockByLabel({ block: list, muya, label: 'paragraph', text });
       }
     },
   }), [onDirtyChange]);

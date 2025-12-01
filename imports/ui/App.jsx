@@ -7,6 +7,7 @@ import { FileBrowser } from './FileBrowser';
 import { SplitPanel } from './SplitPanel';
 import { Login } from './Login';
 import { Settings } from './Settings';
+import { EditorToolbar } from './EditorToolbar';
 import { FileItems } from '../api/collections';
 
 function UserMenu({ onOpenSettings }) {
@@ -140,6 +141,7 @@ function EditorPage() {
   const [saving, setSaving] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [blockInfo, setBlockInfo] = useState({ headingLevel: null, listType: null });
   const editorRef = React.useRef(null);
   const pendingContentRef = React.useRef('');
 
@@ -452,26 +454,38 @@ function EditorPage() {
           }
           right={
             currentFile ? (
-              <div className="h-full bg-white overflow-auto relative">
-                {/* Show loading spinner overlay while loading */}
-                {loading && (
-                  <div className="absolute inset-0 bg-white flex items-center justify-center z-10">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-                      <span className="text-sm text-gray-500">Loading...</span>
+              <div className="h-full bg-white flex flex-col relative">
+                {/* Toolbar */}
+                <EditorToolbar
+                  editorRef={editorRef}
+                  disabled={loading}
+                  currentHeading={blockInfo.headingLevel}
+                  currentList={blockInfo.listType}
+                />
+
+                {/* Editor area */}
+                <div className="flex-1 overflow-auto relative">
+                  {/* Show loading spinner overlay while loading */}
+                  {loading && (
+                    <div className="absolute inset-0 bg-white flex items-center justify-center z-10">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+                        <span className="text-sm text-gray-500">Loading...</span>
+                      </div>
                     </div>
-                  </div>
-                )}
-                {/* Only render editor once we have content (editorKey > 0) */}
-                {editorKey > 0 && (
-                  <MuyaEditor
-                      ref={editorRef}
-                      key={editorKey}
-                      initialValue={pendingContentRef.current}
-                      onDirtyChange={setIsDirty}
-                      onReady={() => setLoading(false)}
-                    />
-                )}
+                  )}
+                  {/* Only render editor once we have content (editorKey > 0) */}
+                  {editorKey > 0 && (
+                    <MuyaEditor
+                        ref={editorRef}
+                        key={editorKey}
+                        initialValue={pendingContentRef.current}
+                        onDirtyChange={setIsDirty}
+                        onReady={() => setLoading(false)}
+                        onBlockChange={setBlockInfo}
+                      />
+                  )}
+                </div>
               </div>
             ) : (
               <WelcomeScreen />

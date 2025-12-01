@@ -1397,6 +1397,478 @@ test.describe('Makora Images', () => {
   });
 });
 
+test.describe('Makora Editor Toolbar', () => {
+  // Helper to wait for app ready and open a file
+  const openTestFile = async (page: Page) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500); // Let editor initialize
+  };
+
+  test('toolbar is visible when file is open', async ({ page }) => {
+    await openTestFile(page);
+
+    // Toolbar should be visible
+    await expect(page.getByTestId('editor-toolbar')).toBeVisible();
+
+    // All toolbar buttons should be present
+    await expect(page.getByTestId('toolbar-bold')).toBeVisible();
+    await expect(page.getByTestId('toolbar-italic')).toBeVisible();
+    await expect(page.getByTestId('toolbar-underline')).toBeVisible();
+    await expect(page.getByTestId('toolbar-heading')).toBeVisible();
+    await expect(page.getByTestId('toolbar-list')).toBeVisible();
+    await expect(page.getByTestId('toolbar-indent')).toBeVisible();
+    await expect(page.getByTestId('toolbar-outdent')).toBeVisible();
+    await expect(page.getByTestId('toolbar-code')).toBeVisible();
+  });
+
+  test('bold button applies bold formatting', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nBoldTestWord');
+    await page.waitForTimeout(100);
+
+    // Select the word by triple-clicking or selecting all
+    await page.keyboard.press('Home');
+    // Move to start of "BoldTestWord"
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+
+    // Click bold button (should select current word if no selection)
+    await page.getByTestId('toolbar-bold').click();
+    await page.waitForTimeout(300);
+
+    // Verify bold formatting was applied
+    await expect(page.locator('.mu-editor strong').getByText('BoldTestWord')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('italic button applies italic formatting', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nItalicTestWord');
+    await page.waitForTimeout(100);
+
+    // Move cursor to be inside the word
+    await page.keyboard.press('Home');
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+
+    // Click italic button
+    await page.getByTestId('toolbar-italic').click();
+    await page.waitForTimeout(300);
+
+    // Verify italic formatting was applied
+    await expect(page.locator('.mu-editor em').getByText('ItalicTestWord')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('code button applies inline code formatting', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nCodeTestWord');
+    await page.waitForTimeout(100);
+
+    // Move cursor to be inside the word
+    await page.keyboard.press('Home');
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+
+    // Click code button
+    await page.getByTestId('toolbar-code').click();
+    await page.waitForTimeout(300);
+
+    // Verify code formatting was applied (inline code uses <code> tag)
+    await expect(page.locator('.mu-editor code').getByText('CodeTestWord')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('heading dropdown shows heading options including paragraph', async ({ page }) => {
+    await openTestFile(page);
+
+    // Click heading dropdown
+    await page.getByTestId('toolbar-heading').click();
+
+    // Paragraph option and all heading levels should be visible
+    await expect(page.getByTestId('toolbar-heading-0')).toBeVisible(); // Paragraph
+    await expect(page.getByTestId('toolbar-heading-1')).toBeVisible();
+    await expect(page.getByTestId('toolbar-heading-2')).toBeVisible();
+    await expect(page.getByTestId('toolbar-heading-3')).toBeVisible();
+    await expect(page.getByTestId('toolbar-heading-4')).toBeVisible();
+    await expect(page.getByTestId('toolbar-heading-5')).toBeVisible();
+    await expect(page.getByTestId('toolbar-heading-6')).toBeVisible();
+  });
+
+  test('heading can be toggled back to paragraph', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nHeading Toggle Test');
+    await page.waitForTimeout(100);
+
+    // Make it H2
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-2').click();
+    await page.waitForTimeout(200);
+    await expect(page.locator('.mu-editor h2').getByText('Heading Toggle Test')).toBeVisible({ timeout: 5000 });
+
+    // Convert back to paragraph
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-0').click();
+    await page.waitForTimeout(200);
+
+    // Should be paragraph now
+    await expect(page.locator('.mu-editor h2').getByText('Heading Toggle Test')).not.toBeVisible();
+    await expect(page.locator('.mu-editor .mu-paragraph').getByText('Heading Toggle Test')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('list dropdown shows list options', async ({ page }) => {
+    await openTestFile(page);
+
+    // Click list dropdown
+    await page.getByTestId('toolbar-list').click();
+
+    // All list types should be visible
+    await expect(page.getByTestId('toolbar-list-bullet-list')).toBeVisible();
+    await expect(page.getByTestId('toolbar-list-order-list')).toBeVisible();
+    await expect(page.getByTestId('toolbar-list-task-list')).toBeVisible();
+  });
+
+  test('bullet list button creates bullet list', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nBullet List Item');
+    await page.waitForTimeout(100);
+
+    // Create bullet list
+    await page.getByTestId('toolbar-list').click();
+    await page.getByTestId('toolbar-list-bullet-list').click();
+    await page.waitForTimeout(300);
+
+    // Verify bullet list was created (use .last() to get the newly created one)
+    await expect(page.locator('.mu-editor .mu-bullet-list').last()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('ordered list button creates ordered list', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nOrdered List Item');
+    await page.waitForTimeout(100);
+
+    // Create ordered list
+    await page.getByTestId('toolbar-list').click();
+    await page.getByTestId('toolbar-list-order-list').click();
+    await page.waitForTimeout(300);
+
+    // Verify ordered list was created
+    await expect(page.locator('.mu-editor .mu-order-list')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('task list button creates task list', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nTask List Item');
+    await page.waitForTimeout(100);
+
+    // Create task list
+    await page.getByTestId('toolbar-list').click();
+    await page.getByTestId('toolbar-list-task-list').click();
+    await page.waitForTimeout(300);
+
+    // Verify task list was created
+    await expect(page.locator('.mu-editor .mu-task-list')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('heading button converts paragraph to heading', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nToolbar Heading Test');
+    await page.waitForTimeout(100);
+
+    // Open heading dropdown and select H2
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-2').click();
+    await page.waitForTimeout(300);
+
+    // Verify heading was applied
+    await expect(page.locator('.mu-editor h2').getByText('Toolbar Heading Test')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('heading button can change heading level', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nHeading Level Change');
+    await page.waitForTimeout(100);
+
+    // First make it H1
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-1').click();
+    await page.waitForTimeout(200);
+    await expect(page.locator('.mu-editor h1').getByText('Heading Level Change')).toBeVisible({ timeout: 5000 });
+
+    // Then change to H3
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-3').click();
+    await page.waitForTimeout(200);
+
+    // Should now be H3, not H1
+    await expect(page.locator('.mu-editor h3').getByText('Heading Level Change')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.mu-editor h1').getByText('Heading Level Change')).not.toBeVisible();
+  });
+
+  test('heading dropdown shows check icon for current heading level', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text and make it H2
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nCheck Icon Heading Test');
+    await page.waitForTimeout(100);
+
+    // Apply H2 via toolbar
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-2').click();
+    await page.waitForTimeout(300);
+
+    // Verify it's now H2
+    await expect(page.locator('.mu-editor h2').getByText('Check Icon Heading Test')).toBeVisible({ timeout: 5000 });
+
+    // Open heading dropdown again - H2 should have check icon visible
+    await page.getByTestId('toolbar-heading').click();
+    await page.waitForTimeout(100);
+
+    // The check icon is inside a span with text-blue-500 class within the H2 button
+    const h2Button = page.getByTestId('toolbar-heading-2');
+    const checkIcon = h2Button.locator('.text-blue-500');
+    await expect(checkIcon).toBeVisible({ timeout: 5000 });
+
+    // Other heading levels should NOT have check icon
+    const h1Button = page.getByTestId('toolbar-heading-1');
+    const h1CheckIcon = h1Button.locator('.text-blue-500');
+    await expect(h1CheckIcon).not.toBeVisible();
+  });
+
+  test('list dropdown shows check icon for current list type', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nCheck Icon List Test');
+    await page.waitForTimeout(100);
+
+    // Apply bullet list via toolbar
+    await page.getByTestId('toolbar-list').click();
+    await page.getByTestId('toolbar-list-bullet-list').click();
+    await page.waitForTimeout(300);
+
+    // Verify it's now a bullet list
+    await expect(page.locator('.mu-editor .mu-bullet-list').last()).toBeVisible({ timeout: 5000 });
+
+    // Open list dropdown again - bullet list should have check icon visible
+    await page.getByTestId('toolbar-list').click();
+    await page.waitForTimeout(100);
+
+    // The check icon is inside a span with text-blue-500 class within the bullet list button
+    const bulletButton = page.getByTestId('toolbar-list-bullet-list');
+    const checkIcon = bulletButton.locator('.text-blue-500');
+    await expect(checkIcon).toBeVisible({ timeout: 5000 });
+
+    // Other list types should NOT have check icon
+    const orderedButton = page.getByTestId('toolbar-list-order-list');
+    const orderedCheckIcon = orderedButton.locator('.text-blue-500');
+    await expect(orderedCheckIcon).not.toBeVisible();
+  });
+
+  test('paragraph shows check icon when cursor is on paragraph', async ({ page }) => {
+    await openTestFile(page);
+
+    // Click on an actual paragraph in the document (not the heading)
+    // The test file has "This is a test document with some content." as a paragraph
+    const paragraph = page.locator('.mu-editor .mu-paragraph').first();
+    await paragraph.click();
+    await page.waitForTimeout(200);
+
+    // Open heading dropdown - Paragraph (level 0) should have check icon
+    await page.getByTestId('toolbar-heading').click();
+    await page.waitForTimeout(100);
+
+    const paragraphButton = page.getByTestId('toolbar-heading-0');
+    const checkIcon = paragraphButton.locator('.text-blue-500');
+    await expect(checkIcon).toBeVisible({ timeout: 5000 });
+  });
+
+  test('clicking checked heading removes heading style', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text and make it H2
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nToggle Off Heading Test');
+    await page.waitForTimeout(100);
+
+    // Apply H2
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-2').click();
+    await page.waitForTimeout(300);
+    await expect(page.locator('.mu-editor h2').getByText('Toggle Off Heading Test')).toBeVisible({ timeout: 5000 });
+
+    // Click H2 again (which has check icon) - should toggle OFF to paragraph
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-2').click();
+    await page.waitForTimeout(300);
+
+    // Should now be paragraph, not H2
+    await expect(page.locator('.mu-editor h2').getByText('Toggle Off Heading Test')).not.toBeVisible();
+    await expect(page.locator('.mu-editor .mu-paragraph').getByText('Toggle Off Heading Test')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('clicking checked list removes list style', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nToggle Off List Test');
+    await page.waitForTimeout(100);
+
+    // Apply bullet list
+    await page.getByTestId('toolbar-list').click();
+    await page.getByTestId('toolbar-list-bullet-list').click();
+    await page.waitForTimeout(300);
+
+    // Verify bullet list was created with the text inside it
+    const bulletListWithText = page.locator('.mu-editor .mu-bullet-list').filter({ hasText: 'Toggle Off List Test' });
+    await expect(bulletListWithText).toBeVisible({ timeout: 5000 });
+
+    // Click back into the list item to ensure focus
+    await bulletListWithText.click();
+    await page.waitForTimeout(100);
+
+    // Click bullet list again (which has check icon) - should toggle OFF to paragraph
+    await page.getByTestId('toolbar-list').click();
+    await page.waitForTimeout(100);
+
+    // Debug: Check if bullet list has check icon (indicating it's recognized as active)
+    const bulletButton = page.getByTestId('toolbar-list-bullet-list');
+    const checkIcon = bulletButton.locator('.text-blue-500');
+    const hasCheck = await checkIcon.isVisible();
+    console.log('Bullet list has check icon:', hasCheck);
+
+    await page.getByTestId('toolbar-list-bullet-list').click();
+    await page.waitForTimeout(300);
+
+    // The text should NO LONGER be inside a bullet list
+    await expect(bulletListWithText).not.toBeVisible({ timeout: 5000 });
+    // And should now be in a paragraph
+    await expect(page.locator('.mu-editor .mu-paragraph').getByText('Toggle Off List Test')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('applying and toggling heading with selection', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nSelection Heading Test');
+    await page.waitForTimeout(100);
+
+    // Select the text
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+End');
+    await page.waitForTimeout(100);
+
+    // Apply H2 via toolbar
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-2').click();
+    await page.waitForTimeout(300);
+
+    // Verify it's now H2
+    await expect(page.locator('.mu-editor h2').getByText('Selection Heading Test')).toBeVisible({ timeout: 5000 });
+
+    // Toggle back to paragraph by selecting same option (Paragraph)
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-0').click();
+    await page.waitForTimeout(300);
+
+    // Verify it's now a paragraph
+    await expect(page.locator('.mu-editor h2').getByText('Selection Heading Test')).not.toBeVisible();
+    await expect(page.locator('.mu-editor .mu-paragraph').getByText('Selection Heading Test')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('applying and toggling unordered list', async ({ page }) => {
+    await openTestFile(page);
+
+    // Type some text
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nList Toggle Test Item');
+    await page.waitForTimeout(100);
+
+    // Apply bullet list via toolbar
+    await page.getByTestId('toolbar-list').click();
+    await page.getByTestId('toolbar-list-bullet-list').click();
+    await page.waitForTimeout(300);
+
+    // Verify it's now a bullet list
+    const bulletList = page.locator('.mu-editor .mu-bullet-list').last();
+    await expect(bulletList).toBeVisible({ timeout: 5000 });
+    await expect(bulletList.getByText('List Toggle Test Item')).toBeVisible();
+
+    // Toggle back to paragraph by applying paragraph heading
+    // (Since there's no "remove list" option, we convert to paragraph)
+    await page.getByTestId('toolbar-heading').click();
+    await page.getByTestId('toolbar-heading-0').click();
+    await page.waitForTimeout(300);
+
+    // Verify it's now a regular paragraph (not in a list)
+    await expect(page.locator('.mu-editor .mu-paragraph').getByText('List Toggle Test Item')).toBeVisible({ timeout: 5000 });
+  });
+});
+
 test.describe('Makora Sorting', () => {
   test('newly created file appears first when sorted by date descending', async ({ page }) => {
     await setupAuthSession(page);
