@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import { FolderIcon, DocumentIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, DocumentIcon, PlusIcon, ChevronDownIcon, ChevronRightIcon, ArrowsUpDownIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { FileItems } from '../api/collections';
 
 // Modal dialog component
@@ -204,7 +204,7 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onCo
                 <span className="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <span className="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </span>
-            ) : isExpanded ? '▼' : '▶'}
+            ) : isExpanded ? <ChevronDownIcon className="w-3 h-3" /> : <ChevronRightIcon className="w-3 h-3" />}
           </span>
         ) : (
           <span className="w-4" />
@@ -265,7 +265,7 @@ function SortDropdown({ value, onChange }) {
         className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded flex items-center gap-1"
         title="Sort order"
       >
-        <span>↕</span>
+        <ArrowsUpDownIcon className="w-4 h-4" />
         <span className="hidden sm:inline">{current.label}</span>
       </button>
       {open && (
@@ -667,7 +667,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
           className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
           title="Refresh"
         >
-          ↻
+          <ArrowPathIcon className="w-4 h-4" />
         </button>
       </div>
 
