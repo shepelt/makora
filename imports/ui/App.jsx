@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { flushSync } from 'react-dom';
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
 import { MuyaEditor } from './MuyaEditor';
 import { FileBrowser } from './FileBrowser';
-import { SplitPanel } from './SplitPanel';
+import { SplitPanel, useIsMobile } from './SplitPanel';
 import { Login } from './Login';
 import { Settings } from './Settings';
 import { EditorToolbar } from './EditorToolbar';
@@ -164,12 +163,17 @@ function EditorPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const basePath = searchParams.get('path') || '/';
   const currentFile = searchParams.get('file');
+  const isMobile = useIsMobile();
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileDir, setFileDir] = useState('/');
   const [editorKey, setEditorKey] = useState(0);
   // Start loading if we have a file to load from URL (page refresh scenario)
   const [loading, setLoading] = useState(!!searchParams.get('file'));
+  // Track which file is being loaded (for file browser spinner)
+  const [loadingFilePath, setLoadingFilePath] = useState(searchParams.get('file'));
+  // Track if we're reloading (vs initial load) - keeps editor visible on mobile
+  const [reloading, setReloading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -206,6 +210,10 @@ function EditorPage() {
     if (currentFile) {
       // Skip reload if same file (e.g., closing and reopening)
       if (currentFile === loadedFileRef.current) {
+        // File already loaded - just clear loading state
+        setLoading(false);
+        setLoadingFilePath(null);
+        setReloading(false);
         return;
       }
       loadedFileRef.current = currentFile;
@@ -282,12 +290,11 @@ function EditorPage() {
     const basename = filePath.split('/').pop();
     const dir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
 
-    // Force immediate re-render to show loading state before editor remounts
-    flushSync(() => {
-      setLoading(true);
-      setSelectedFile({ filename: filePath, basename });
-      setFileDir(dir);
-    });
+    // Update loading state immediately
+    setLoading(true);
+    setLoadingFilePath(filePath);
+    setSelectedFile({ filename: filePath, basename });
+    setFileDir(dir);
 
     // Check for cached content first (skip if forcing reload)
     const cached = forceReload ? null : getFileCache(filePath);
@@ -299,11 +306,12 @@ function EditorPage() {
       pendingContentRef.current = transformContent(cached.content, dir);
       setEditorKey(k => k + 1);
       usedCache = true;
-    } else {
-      // No cache - clear old editor content
+    } else if (!forceReload) {
+      // No cache and not a reload - clear old editor content
       pendingContentRef.current = '';
       setEditorKey(k => k + 1);
     }
+    // For forceReload without cache, don't remount until we have new content
 
     try {
       // Fetch from server (with conditional headers if we have cache metadata)
@@ -314,6 +322,8 @@ function EditorPage() {
         // Cache is still valid, nothing to update
         console.log('Cache still valid (304):', filePath);
         setLoading(false);
+        setLoadingFilePath(null);
+        setReloading(false);
         return;
       }
 
@@ -332,6 +342,8 @@ function EditorPage() {
         // Content is the same, no need to update editor
         console.log('Content unchanged, keeping cached version');
         setLoading(false);
+        setLoadingFilePath(null);
+        setReloading(false);
         return;
       }
 
@@ -346,6 +358,8 @@ function EditorPage() {
         setEditorKey(k => k + 1);
       }
       setLoading(false);
+      setLoadingFilePath(null);
+      setReloading(false);
     }
     // Note: setLoading(false) is called by MuyaEditor's onReady callback
     // to ensure spinner shows until editor is fully rendered
@@ -468,6 +482,10 @@ function EditorPage() {
         }
         if (path === '/') break;
       }
+      // Hide keyboard on mobile after save
+      if (isMobile && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     } catch (err) {
       console.error('Failed to save file:', err);
     } finally {
@@ -476,6 +494,9 @@ function EditorPage() {
   };
 
   const handleFileSelect = (file) => {
+    // Set loading immediately so spinner shows in file browser
+    setLoading(true);
+    setLoadingFilePath(file.filename);
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       next.set('file', file.filename);
@@ -501,10 +522,28 @@ function EditorPage() {
   };
 
   return (
-    <div className="h-dvh flex flex-col">
+    <div className="h-dvh flex flex-col overflow-x-hidden">
       {/* Header */}
-      <div className="bg-cream border-b border-cream px-4 py-2 flex items-center shrink-0 z-40">
-        <h1 className="font-serif text-xl font-light text-charcoal">Makora</h1>
+      <div className="bg-cream border-b border-cream px-2 sm:px-4 py-1 sm:py-2 flex items-center shrink-0 z-40">
+        {isMobile && currentFile && !loading ? (
+          <button
+            onClick={() => {
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev);
+                next.delete('file');
+                return next;
+              });
+            }}
+            className="p-1 -ml-1 mr-2 text-charcoal hover:bg-gray-100 rounded"
+            aria-label="Back to files"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        ) : (
+          <h1 className="font-serif text-xl font-light text-charcoal">Makora</h1>
+        )}
         <span className="flex-1 text-center text-sm text-warm-gray overflow-hidden text-ellipsis whitespace-nowrap px-4">
           {currentFile ? currentFile.split('/').pop() : ''}
         </span>
@@ -514,12 +553,14 @@ function EditorPage() {
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
         <SplitPanel
+          showRightPane={!!currentFile && (!loading || reloading)}
           left={
             <FileBrowser
               basePath={basePath}
               onFileSelect={handleFileSelect}
               onFileDelete={handleFileDelete}
               currentFilePath={currentFile}
+              loadingFilePath={loadingFilePath}
             />
           }
           right={
@@ -539,6 +580,7 @@ function EditorPage() {
                   onReload={() => {
                     if (currentFile) {
                       // Force reload from server, bypassing cache
+                      setReloading(true);
                       loadedFileRef.current = currentFile;
                       loadFile(currentFile, true);
                     }
@@ -566,8 +608,13 @@ function EditorPage() {
                         key={editorKey}
                         initialValue={pendingContentRef.current}
                         onDirtyChange={setIsDirty}
-                        onReady={() => setLoading(false)}
+                        onReady={() => {
+                          setLoading(false);
+                          setLoadingFilePath(null);
+                          setReloading(false);
+                        }}
                         onBlockChange={setBlockInfo}
+                        preventAutoFocus={isMobile}
                       />
                   )}
                 </div>
@@ -579,6 +626,13 @@ function EditorPage() {
           }
         />
       </div>
+
+      {/* Mobile loading progress bar */}
+      {isMobile && loading && (
+        <div className="h-1 bg-gray-200 overflow-hidden shrink-0">
+          <div className="h-full bg-blue-500 animate-progress-indeterminate" />
+        </div>
+      )}
 
       {/* Settings Modal */}
       {showSettings && (

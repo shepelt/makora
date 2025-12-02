@@ -9,7 +9,7 @@ if (!Muya.plugins?.length) {
   Muya.use(CodeBlockLanguageSelector);
 }
 
-export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onDirtyChange, onReady, onBlockChange }, ref) {
+export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', onDirtyChange, onReady, onBlockChange, preventAutoFocus = false }, ref) {
   const containerRef = useRef(null);
   const muyaRef = useRef(null);
   const lastDirtyRef = useRef(false);
@@ -35,6 +35,15 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
 
     muya.init();
     muyaRef.current = muya;
+
+    // Prevent auto-focus on mobile to avoid keyboard popup
+    if (preventAutoFocus) {
+      requestAnimationFrame(() => {
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      });
+    }
 
     // Record initial history state
     cleanUndoLengthRef.current = muya.editor.history._stack?.undo?.length || 0;
@@ -544,14 +553,27 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
         .muya-editor-wrapper {
           width: 100%;
           min-height: 400px;
+          overflow-x: hidden;
         }
         .muya-editor-wrapper .mu-editor {
-          padding: 2rem 15%;
+          padding: 2.5rem 18%;
           outline: none;
+          overflow-wrap: break-word;
+          word-wrap: break-word;
+        }
+        .muya-editor-wrapper pre,
+        .muya-editor-wrapper code {
+          overflow-x: auto;
+          max-width: 100%;
         }
         @media (max-width: 900px) {
           .muya-editor-wrapper .mu-editor {
             padding: 1.5rem 5%;
+          }
+        }
+        @media (max-width: 768px) {
+          .muya-editor-wrapper .mu-editor {
+            padding: 0.5rem 0.5rem;
           }
         }
       `}</style>

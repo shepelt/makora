@@ -198,11 +198,12 @@ function ContextMenu({ x, y, item, onClose, onOpenNewTab, onRename, onDelete, on
   );
 }
 
-function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onContextMenu, currentFilePath, children: childItems }) {
+function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onContextMenu, currentFilePath, loadingFilePath, children: childItems }) {
   const isExpanded = expandedPaths.has(item.filename);
   const isDirectory = item.type === 'directory';
   const isLoading = expandedPaths.get(item.filename) === 'loading';
   const isActive = currentFilePath === item.filename;
+  const isFileLoading = !isDirectory && loadingFilePath === item.filename;
 
   const handleClick = () => {
     if (isDirectory) {
@@ -222,7 +223,7 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onCo
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className={`flex items-center gap-1 py-1 px-2 cursor-pointer ${isActive ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100'}`}
+        className={`flex items-center gap-1.5 sm:gap-1 py-4 sm:py-1 px-2 cursor-pointer border-b border-gray-100 sm:border-0 ${isActive ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 active:bg-gray-200'}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
       >
         {isDirectory ? (
@@ -239,11 +240,17 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onCo
           <span className="w-4" />
         )}
         {isDirectory ? (
-          <FolderIcon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+          <FolderIcon className={`w-5 h-5 sm:w-4 sm:h-4 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
         ) : (
-          <DocumentIcon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
+          <DocumentIcon className={`w-5 h-5 sm:w-4 sm:h-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
         )}
-        <span className="flex-1 truncate text-sm">{item.basename}</span>
+        <span className="flex-1 truncate text-base sm:text-sm">{item.basename}</span>
+        {isFileLoading && (
+          <svg className="w-3 h-3 ml-1 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+        )}
       </div>
       {isExpanded && childItems && childItems.map((child) => (
         <TreeItem
@@ -256,6 +263,7 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onCo
           children={child.children}
           onContextMenu={onContextMenu}
           currentFilePath={currentFilePath}
+          loadingFilePath={loadingFilePath}
         />
       ))}
     </>
@@ -359,14 +367,42 @@ function getSortObject(sortOrder) {
   }
 }
 
-export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onFileDelete }) {
-  const [expandedPaths, setExpandedPaths] = useState(new Map());
+const EXPANDED_PATHS_KEY = 'fileBrowserExpanded';
+
+function loadExpandedPaths() {
+  try {
+    const saved = localStorage.getItem(EXPANDED_PATHS_KEY);
+    if (saved) {
+      const arr = JSON.parse(saved);
+      return new Map(arr.map(path => [path, true]));
+    }
+  } catch {}
+  return new Map();
+}
+
+function saveExpandedPaths(paths) {
+  try {
+    // Only save paths that are truly expanded (not 'loading')
+    const arr = [...paths.entries()]
+      .filter(([, value]) => value === true)
+      .map(([path]) => path);
+    localStorage.setItem(EXPANDED_PATHS_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onFileDelete, loadingFilePath }) {
+  const [expandedPaths, setExpandedPaths] = useState(() => loadExpandedPaths());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [sortOrder, setSortOrder] = useState(() => {
     return localStorage.getItem('fileBrowserSort') || 'name-asc';
   });
+
+  // Save expanded paths to localStorage when they change
+  useEffect(() => {
+    saveExpandedPaths(expandedPaths);
+  }, [expandedPaths]);
 
   // Dialog states
   const [deleteDialog, setDeleteDialog] = useState(null);
@@ -591,10 +627,12 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
           await loadDirectory(ancestorPath);
         }
 
-        // Mark as expanded
+        // Mark as expanded (preserve loading state if currently loading)
         setExpandedPaths(prev => {
           const next = new Map(prev);
-          next.set(ancestorPath, true);
+          if (prev.get(ancestorPath) !== 'loading') {
+            next.set(ancestorPath, true);
+          }
           return next;
         });
       }
@@ -803,6 +841,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
             children={item.children}
             onContextMenu={handleContextMenu}
             currentFilePath={currentFilePath}
+            loadingFilePath={loadingFilePath}
           />
         ))}
       </div>

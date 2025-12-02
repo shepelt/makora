@@ -310,7 +310,7 @@ export const EditorToolbar = memo(function EditorToolbar({ editorRef, disabled, 
 
   return (
     <div
-      className="flex items-center gap-1 px-2 py-1 bg-gray-50 border-b border-gray-200"
+      className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-0.5 sm:py-1 bg-gray-50 border-b border-gray-200"
       data-testid="editor-toolbar"
     >
       {/* Text formatting */}
@@ -402,17 +402,20 @@ export const EditorToolbar = memo(function EditorToolbar({ editorRef, disabled, 
       />
 
       {/* Close button */}
-      <ToolbarButton
-        icon={
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        }
-        title="Close file"
-        onClick={onClose}
-        disabled={disabled}
-        testId="toolbar-close"
-      />
+      {/* Hide close button on mobile - use header back button instead */}
+      <span className="hidden sm:inline">
+        <ToolbarButton
+          icon={
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          }
+          title="Close file"
+          onClick={onClose}
+          disabled={disabled}
+          testId="toolbar-close"
+        />
+      </span>
     </div>
   );
 });

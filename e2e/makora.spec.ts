@@ -1391,6 +1391,36 @@ test.describe('Makora File Management', () => {
     await expect(page.locator('.truncate').getByText('nested.md', { exact: true })).toBeVisible({ timeout: 5000 });
     await expect(nestedRow).toHaveClass(/bg-blue-100/);
   });
+
+  test('mobile: folder stays expanded after opening and closing file', async ({ page }) => {
+    // Set mobile viewport
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Expand Subfolder
+    await page.locator('.truncate').getByText('Subfolder', { exact: true }).click();
+    await page.waitForTimeout(500);
+
+    // Verify nested.md is visible (folder is expanded)
+    await expect(page.locator('.truncate').getByText('nested.md', { exact: true })).toBeVisible();
+
+    // Click on nested.md to open it
+    await page.locator('.truncate').getByText('nested.md', { exact: true }).click();
+
+    // Wait for editor to load (on mobile, view switches to editor)
+    await expect(page.getByText('Nested File')).toBeVisible({ timeout: 10000 });
+
+    // Click back button to return to file browser
+    await page.getByRole('button', { name: 'Back to files' }).click();
+
+    // Wait for file browser to be visible again
+    await page.waitForTimeout(500);
+
+    // Verify Subfolder is still expanded and nested.md is visible
+    await expect(page.locator('.truncate').getByText('nested.md', { exact: true })).toBeVisible({ timeout: 5000 });
+  });
 });
 
 test.describe('Makora Images', () => {

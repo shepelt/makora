@@ -1,8 +1,28 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 
 const STORAGE_KEY = 'makora:splitPanelWidth';
+const MOBILE_BREAKPOINT = 768; // px
 
-export function SplitPanel({ left, right, defaultWidth = 250, minWidth = 150, maxWidth = 500 }) {
+// Hook to detect mobile screen size
+export function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return isMobile;
+}
+
+export function SplitPanel({ left, right, defaultWidth = 250, minWidth = 150, maxWidth = 500, showRightPane = false }) {
+  const isMobile = useIsMobile();
+
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
@@ -69,6 +89,17 @@ export function SplitPanel({ left, right, defaultWidth = 250, minWidth = 150, ma
     document.addEventListener('touchend', handleTouchEnd);
   }, [minWidth, maxWidth]);
 
+  // Mobile: render both panes but show only one (keeps both mounted for state preservation)
+  if (isMobile) {
+    return (
+      <div ref={containerRef} className="h-full relative">
+        <div className={`h-full overflow-hidden ${showRightPane ? 'hidden' : ''}`}>{left}</div>
+        <div className={`absolute inset-0 h-full overflow-hidden ${showRightPane ? '' : 'hidden'}`}>{right}</div>
+      </div>
+    );
+  }
+
+  // Desktop: show both panes with resizable divider
   return (
     <div ref={containerRef} className="flex h-full">
       {/* Left panel */}
