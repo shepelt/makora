@@ -12,3 +12,10 @@ body {
 .muya-editor-wrapper .mu-editor {
   padding-left: 1rem !important;
 }
+
+/* Normalize list item spacing - treat all lists as tight */
+.mu-bullet-list li > p,
+.mu-order-list li > p {
+  margin: 0;
+  padding: 0;
+}
