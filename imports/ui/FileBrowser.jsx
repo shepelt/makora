@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import { FolderIcon, DocumentIcon, PlusIcon, ChevronDownIcon, ChevronRightIcon, ArrowsUpDownIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, DocumentIcon, PlusIcon, ChevronDownIcon, ChevronRightIcon, ArrowsUpDownIcon, ArrowPathIcon, ArrowUpIcon, ArrowDownIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { FileItems } from '../api/collections';
 
 // Modal dialog component
@@ -234,11 +234,32 @@ function TreeItem({ item, depth, onFileSelect, expandedPaths, toggleExpand, onCo
 }
 
 const SORT_OPTIONS = [
-  { value: 'name-asc', label: 'Name (A-Z)' },
-  { value: 'name-desc', label: 'Name (Z-A)' },
-  { value: 'date-desc', label: 'Date (Newest)' },
-  { value: 'date-asc', label: 'Date (Oldest)' },
+  { value: 'name-asc', label: 'Name (A-Z)', title: 'Name A→Z' },
+  { value: 'name-desc', label: 'Name (Z-A)', title: 'Name Z→A' },
+  { value: 'date-desc', label: 'Date (Newest)', title: 'Newest first' },
+  { value: 'date-asc', label: 'Date (Oldest)', title: 'Oldest first' },
 ];
+
+// Compact icon for sort option
+function SortIcon({ type, direction }) {
+  const isAsc = direction === 'asc';
+  const Arrow = isAsc ? ArrowUpIcon : ArrowDownIcon;
+
+  if (type === 'name') {
+    return (
+      <span className="inline-flex items-center gap-0.5">
+        <span className="text-[10px] font-semibold leading-none">Aa</span>
+        <Arrow className="w-3 h-3" />
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <ClockIcon className="w-3.5 h-3.5" />
+      <Arrow className="w-3 h-3" />
+    </span>
+  );
+}
 
 function SortDropdown({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -256,29 +277,33 @@ function SortDropdown({ value, onChange }) {
     }
   }, [open]);
 
+  const [currentType, currentDir] = value.split('-');
   const current = SORT_OPTIONS.find(o => o.value === value) || SORT_OPTIONS[0];
 
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded flex items-center gap-1"
-        title="Sort order"
+        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded flex items-center"
+        title={current.title}
       >
-        <ArrowsUpDownIcon className="w-4 h-4" />
-        <span className="hidden sm:inline">{current.label}</span>
+        <SortIcon type={currentType} direction={currentDir} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded shadow-lg border border-gray-200 py-1 z-50">
-          {SORT_OPTIONS.map(option => (
-            <button
-              key={option.value}
-              onClick={() => { onChange(option.value); setOpen(false); }}
-              className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-100 ${value === option.value ? 'bg-gray-50 font-medium' : ''}`}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="absolute right-0 top-full mt-1 bg-white rounded shadow-lg border border-gray-200 py-1 z-50">
+          {SORT_OPTIONS.map(option => {
+            const [type, dir] = option.value.split('-');
+            return (
+              <button
+                key={option.value}
+                onClick={() => { onChange(option.value); setOpen(false); }}
+                className={`w-full px-3 py-1.5 flex items-center gap-2 hover:bg-gray-100 ${value === option.value ? 'bg-gray-50' : ''}`}
+                title={option.title}
+              >
+                <SortIcon type={type} direction={dir} />
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

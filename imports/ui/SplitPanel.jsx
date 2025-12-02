@@ -44,6 +44,31 @@ export function SplitPanel({ left, right, defaultWidth = 250, minWidth = 150, ma
     document.addEventListener('mouseup', handleMouseUp);
   }, [minWidth, maxWidth]);
 
+  const handleTouchStart = useCallback((e) => {
+    isDragging.current = true;
+    document.body.style.userSelect = 'none';
+
+    const handleTouchMove = (e) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const touch = e.touches[0];
+      const rect = containerRef.current.getBoundingClientRect();
+      const newWidth = Math.min(maxWidth, Math.max(minWidth, touch.clientX - rect.left));
+      widthRef.current = newWidth;
+      setWidth(newWidth);
+    };
+
+    const handleTouchEnd = () => {
+      isDragging.current = false;
+      document.body.style.userSelect = '';
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+      localStorage.setItem(STORAGE_KEY, widthRef.current.toString());
+    };
+
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd);
+  }, [minWidth, maxWidth]);
+
   return (
     <div ref={containerRef} className="flex h-full">
       {/* Left panel */}
@@ -51,10 +76,11 @@ export function SplitPanel({ left, right, defaultWidth = 250, minWidth = 150, ma
         {left}
       </div>
 
-      {/* Divider */}
+      {/* Divider - wider touch target for mobile */}
       <div
         onMouseDown={handleMouseDown}
-        className="w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors"
+        onTouchStart={handleTouchStart}
+        className="w-2 bg-gray-200 hover:bg-blue-400 active:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors touch-none"
       />
 
       {/* Right panel */}

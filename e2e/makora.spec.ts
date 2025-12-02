@@ -636,6 +636,119 @@ test.describe('Makora Performance', () => {
   });
 });
 
+test.describe('Makora Headings', () => {
+  test('pressing Enter at end of heading creates paragraph, not duplicate heading (issue #27)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Create a new heading
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n\nMy Test Heading');
+    await page.waitForTimeout(100);
+
+    // Convert to H2
+    await page.keyboard.press('Control+2');
+    await page.waitForTimeout(300);
+
+    // Verify it's an H2
+    await expect(page.locator('.mu-editor h2').getByText('My Test Heading')).toBeVisible({ timeout: 5000 });
+
+    // Count H2 elements before pressing Enter
+    const h2CountBefore = await page.locator('.mu-editor h2').count();
+
+    // Press Enter at the end of the heading
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+
+    // Count H2 elements after pressing Enter
+    const h2CountAfter = await page.locator('.mu-editor h2').count();
+
+    // BUG: If heading is duplicated, h2CountAfter will be > h2CountBefore
+    // Expected: h2CountAfter should equal h2CountBefore (Enter creates paragraph, not heading)
+    expect(h2CountAfter).toBe(h2CountBefore);
+
+    // The new line should be a paragraph, not a heading
+    // Type something to verify we're in a paragraph
+    await page.keyboard.type('This should be a paragraph');
+    await page.waitForTimeout(200);
+
+    // Verify the new text is in a paragraph, not an h2
+    await expect(page.locator('.mu-editor .mu-paragraph').getByText('This should be a paragraph')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.mu-editor h2').getByText('This should be a paragraph')).not.toBeVisible();
+  });
+
+  test('pressing Enter at beginning of loaded heading (issue #27)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // BUG CONDITIONS (from user):
+    // 1. Heading needs to be in the MIDDLE of document (blank lines above/below)
+    // 2. Heading needs to be "not fresh" - saved and reloaded
+    // 3. Press Enter at beginning of heading, then arrow up
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+    await page.keyboard.press('Control+End');
+    // Create structure matching user's file: blank lines, then heading, then blank lines
+    await page.keyboard.type('\n\n\n\n## TestHeading\n\n\n');
+    await page.waitForTimeout(300);
+
+    // Verify it's an H2
+    await expect(page.locator('.mu-editor h2').getByText('TestHeading')).toBeVisible({ timeout: 5000 });
+
+    // SAVE the file
+    await page.keyboard.press('Control+s');
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(500);
+
+    // RELOAD the page to get "not fresh" heading
+    await page.reload();
+    await waitForAppReady(page);
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Verify our heading is still there after reload
+    await expect(page.locator('.mu-editor h2').getByText('TestHeading')).toBeVisible({ timeout: 5000 });
+
+    // Count H2 elements before pressing Enter
+    const h2CountBefore = await page.locator('.mu-editor h2').count();
+    console.log('H2 count before:', h2CountBefore);
+
+    // Click on the heading to position cursor there
+    await page.locator('.mu-editor h2').getByText('TestHeading').click();
+    await page.waitForTimeout(100);
+
+    // Move cursor to BEGINNING of heading and press Enter
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+
+    // Count H2 elements after pressing Enter
+    const h2CountAfter = await page.locator('.mu-editor h2').count();
+    console.log('H2 count after:', h2CountAfter);
+
+    // Debug: log all h2 text content
+    const h2Texts = await page.locator('.mu-editor h2').allTextContents();
+    console.log('All H2 texts after Enter:', h2Texts);
+
+    // BUG: If heading is duplicated, h2CountAfter > h2CountBefore
+    // Expected: H2 count should stay the same (Enter creates paragraph, not duplicate heading)
+    expect(h2CountAfter).toBe(h2CountBefore);
+  });
+});
+
 test.describe('Makora Keyboard Shortcuts', () => {
   test('Cmd/Ctrl+1 converts paragraph to H1', async ({ page }) => {
     await page.goto('/');
