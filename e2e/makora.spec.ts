@@ -16,6 +16,11 @@ async function waitForAppReady(page: Page) {
 // Helper to set up authenticated session for image proxy
 // This mimics how Meteor actually stores auth tokens (localStorage, not cookies)
 async function setupAuthSession(page: Page) {
+  // Clear file browser cache before app loads to avoid stale data between tests
+  await page.addInitScript(() => {
+    localStorage.removeItem('fileBrowserCache');
+  });
+
   await page.goto('/');
   // Wait for Meteor to be available
   await page.waitForFunction(() => typeof (window as any).Meteor !== 'undefined', { timeout: 15000 });
@@ -2068,7 +2073,7 @@ test.describe('Makora Sorting', () => {
 
     // Switch to date (newest) sort order
     await page.getByTitle('Sort order').click();
-    await page.getByText('Date (Newest)').click();
+    await page.getByTitle('Newest first').click();
     await page.waitForTimeout(500);
 
     // Create a new file at root level via + button in header
@@ -2107,7 +2112,7 @@ test.describe('Makora Sorting', () => {
 
     // Switch to date (newest) sort order
     await page.getByTitle('Sort order').click();
-    await page.getByText('Date (Newest)').click();
+    await page.getByTitle('Newest first').click();
     await page.waitForTimeout(500);
 
     // Open an existing file (hello.md is in the fixture)
@@ -2140,7 +2145,7 @@ test.describe('Makora Sorting', () => {
 
     // Switch to date (newest) sort order
     await page.getByTitle('Sort order').click();
-    await page.getByText('Date (Newest)').click();
+    await page.getByTitle('Newest first').click();
     await page.waitForTimeout(500);
 
     // Get current folder order - we have AFolder and Subfolder
@@ -2189,7 +2194,7 @@ test.describe('Makora Sorting', () => {
 
     // Switch to date (newest) sort order
     await page.getByTitle('Sort order').click();
-    await page.getByText('Date (Newest)').click();
+    await page.getByTitle('Newest first').click();
     await page.waitForTimeout(500);
 
     // Get current folder order - we have AFolder and Subfolder

@@ -1,8 +1,37 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
 import { FolderIcon, DocumentIcon, PlusIcon, ChevronDownIcon, ChevronRightIcon, ArrowsUpDownIcon, ArrowPathIcon, ArrowUpIcon, ArrowDownIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { FileItems } from '../api/collections';
+
+// Cache helpers for localStorage persistence
+const CACHE_KEY = 'fileBrowserCache';
+const CACHE_VERSION = 1;
+const BACKGROUND_REFRESH_INTERVAL = 60000; // 60 seconds
+
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data.version !== CACHE_VERSION) return null;
+    return data.items || [];
+  } catch {
+    return null;
+  }
+}
+
+function saveCache(items) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      version: CACHE_VERSION,
+      items,
+      timestamp: Date.now(),
+    }));
+  } catch {
+    // localStorage might be full or disabled
+  }
+}
 
 // Modal dialog component
 function Modal({ title, children, onClose }) {
@@ -285,7 +314,7 @@ function SortDropdown({ value, onChange }) {
       <button
         onClick={() => setOpen(!open)}
         className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded flex items-center"
-        title={current.title}
+        title="Sort order"
       >
         <SortIcon type={currentType} direction={currentDir} />
       </button>
@@ -367,12 +396,19 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
   }, [normalizedBasePath, sortObject]);
 
   // Load directory from server and populate collection
-  const loadDirectory = useCallback(async (dirPath) => {
+  // If isBackground is true, don't show loading spinner or error states
+  const loadDirectory = useCallback(async (dirPath, isBackground = false) => {
     const isRoot = dirPath === normalizedBasePath;
-    if (isRoot) {
-      setLoading(true);
+    if (isRoot && !isBackground) {
+      // Only show loading if we have no cached data
+      const hasCachedData = FileItems.find({ parent: normalizedBasePath }).count() > 0;
+      if (!hasCachedData) {
+        setLoading(true);
+      }
     }
-    setError(null);
+    if (!isBackground) {
+      setError(null);
+    }
 
     try {
       const result = await Meteor.callAsync('webdav.list', dirPath);
@@ -418,12 +454,17 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
         );
       }
 
+      // Save entire collection to cache after successful fetch
+      saveCache(FileItems.find().fetch());
+
       return filtered;
     } catch (err) {
-      setError(err.reason || err.message);
+      if (!isBackground) {
+        setError(err.reason || err.message);
+      }
       return [];
     } finally {
-      if (isRoot) {
+      if (isRoot && !isBackground) {
         setLoading(false);
       }
     }
@@ -434,10 +475,52 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
     // Clear collection and expanded paths when basePath changes
     FileItems.remove({});
     setExpandedPaths(new Map());
+
+    // Load from cache first for instant UI
+    const cached = loadCache();
+    if (cached && cached.length > 0) {
+      // Filter cache to only include items for current basePath
+      const relevantItems = cached.filter(item =>
+        item.parent === normalizedBasePath ||
+        item.parent?.startsWith(normalizedBasePath + '/') ||
+        item.filename?.startsWith(normalizedBasePath)
+      );
+      relevantItems.forEach(item => {
+        // Remove _id and restore Date objects from cached strings
+        const { _id, ...rest } = item;
+        FileItems.insert({
+          ...rest,
+          lastmod: item.lastmod ? new Date(item.lastmod) : null,
+        });
+      });
+      // Don't show loading spinner since we have cached data
+      setLoading(false);
+    }
+
+    // Fetch fresh data (will update cache when done)
     loadDirectory(normalizedBasePath);
   }, [normalizedBasePath, loadDirectory]);
 
+  // Periodic background refresh
+  useEffect(() => {
+    const refreshExpanded = () => {
+      // Refresh root directory
+      loadDirectory(normalizedBasePath, true);
+      // Refresh all expanded directories
+      expandedPaths.forEach((value, path) => {
+        if (value === true) { // Only if fully loaded, not 'loading'
+          loadDirectory(path, true);
+        }
+      });
+    };
+
+    const interval = setInterval(refreshExpanded, BACKGROUND_REFRESH_INTERVAL);
+    return () => clearInterval(interval);
+  }, [normalizedBasePath, expandedPaths, loadDirectory]);
+
   const toggleExpand = useCallback(async (path) => {
+    const wasExpanded = expandedPaths.has(path) && expandedPaths.get(path) !== 'loading';
+
     setExpandedPaths(prev => {
       const next = new Map(prev);
       if (next.has(path) && next.get(path) !== 'loading') {
@@ -450,9 +533,8 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
       return next;
     });
 
-    // If expanding and not loaded, load children
-    const item = FileItems.findOne({ filename: path });
-    if (!expandedPaths.has(path) && (!item || !item.loaded)) {
+    // If expanding, always refresh directory contents
+    if (!wasExpanded) {
       await loadDirectory(path);
     }
 
