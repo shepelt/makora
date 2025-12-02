@@ -2239,3 +2239,128 @@ test.describe('Makora Sorting', () => {
     await expect(page.locator('.truncate').getByText(`${filename}.md`)).not.toBeVisible({ timeout: 10000 });
   });
 });
+
+test.describe('Makora Copy & Paste', () => {
+  test('paste list items creates proper list structure', async ({ page, context }) => {
+    // Grant clipboard permissions
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await page.goto('/');
+    await expect(page.getByText('test.md', { exact: true }).first()).toBeVisible({ timeout: 20000 });
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+
+    // Go to end of document
+    await page.keyboard.press('Control+End');
+    await page.waitForTimeout(100);
+
+    // Create a new paragraph to paste into
+    const timestamp = Date.now();
+    await page.keyboard.type(`\n\nPaste target ${timestamp}:\n`);
+    await page.waitForTimeout(200);
+
+    // Dispatch a custom paste event with the list markdown
+    const listMarkdown = `- PasteTestA_${timestamp}\n- PasteTestB_${timestamp}\n- PasteTestC_${timestamp}`;
+
+    await page.evaluate((text) => {
+      const editor = document.querySelector('.mu-editor');
+      if (!editor) throw new Error('Editor not found');
+
+      // Create a paste event with DataTransfer
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+
+      const pasteEvent = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dt,
+      });
+
+      editor.dispatchEvent(pasteEvent);
+    }, listMarkdown);
+    await page.waitForTimeout(500);
+
+    // Verify pasted items exist as separate list items
+    await expect(page.getByText(`PasteTestA_${timestamp}`)).toBeVisible();
+    await expect(page.getByText(`PasteTestB_${timestamp}`)).toBeVisible();
+    await expect(page.getByText(`PasteTestC_${timestamp}`)).toBeVisible();
+
+    // Check that items are in a list structure (not just inline text)
+    const listItems = page.locator('.mu-bullet-list li');
+    const listItemCount = await listItems.count();
+
+    // Should have at least 5 list items (2 original + 3 pasted)
+    expect(listItemCount).toBeGreaterThanOrEqual(5);
+
+    // Verify pasted items are specifically within list item elements
+    const pastedItemA = page.locator('.mu-bullet-list li').filter({ hasText: `PasteTestA_${timestamp}` });
+    const pastedItemB = page.locator('.mu-bullet-list li').filter({ hasText: `PasteTestB_${timestamp}` });
+    const pastedItemC = page.locator('.mu-bullet-list li').filter({ hasText: `PasteTestC_${timestamp}` });
+
+    expect(await pastedItemA.count()).toBe(1);
+    expect(await pastedItemB.count()).toBe(1);
+    expect(await pastedItemC.count()).toBe(1);
+  });
+
+  test('paste heading with list items creates proper structure', async ({ page, context }) => {
+    // Grant clipboard permissions
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await page.goto('/');
+    await expect(page.getByText('test.md', { exact: true }).first()).toBeVisible({ timeout: 20000 });
+
+    // Open test.md
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const editor = page.locator('.mu-editor');
+    await editor.click();
+
+    // Go to end of document
+    await page.keyboard.press('Control+End');
+    await page.waitForTimeout(100);
+
+    // Create a new paragraph to paste into
+    const timestamp = Date.now();
+    await page.keyboard.type(`\n\nPaste target ${timestamp}:\n`);
+    await page.waitForTimeout(200);
+
+    // Dispatch a custom paste event with heading + list markdown
+    const combinedMarkdown = `## PasteHeading_${timestamp}\n- PasteListA_${timestamp}\n- PasteListB_${timestamp}`;
+
+    await page.evaluate((text) => {
+      const editorEl = document.querySelector('.mu-editor');
+      if (!editorEl) throw new Error('Editor not found');
+
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+
+      const pasteEvent = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dt,
+      });
+
+      editorEl.dispatchEvent(pasteEvent);
+    }, combinedMarkdown);
+    await page.waitForTimeout(500);
+
+    // Verify heading was pasted as h2
+    const pastedHeading = page.locator('h2').filter({ hasText: `PasteHeading_${timestamp}` });
+    expect(await pastedHeading.count()).toBe(1);
+
+    // Verify list items were pasted as proper list items
+    const pastedListA = page.locator('.mu-bullet-list li').filter({ hasText: `PasteListA_${timestamp}` });
+    const pastedListB = page.locator('.mu-bullet-list li').filter({ hasText: `PasteListB_${timestamp}` });
+
+    expect(await pastedListA.count()).toBe(1);
+    expect(await pastedListB.count()).toBe(1);
+  });
+});
