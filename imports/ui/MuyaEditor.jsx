@@ -471,9 +471,13 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
       const selection = muya.editor.selection.getSelection();
       const anchorBlock = selection?.anchorBlock;
 
-      // unindentListItem is a method on paragraph content blocks inside list items
+      // unindentListItem requires a type from _getUnindentType()
+      // FIX: Call _getUnindentType() first and pass the result
       if (anchorBlock && typeof anchorBlock._unindentListItem === 'function') {
-        anchorBlock._unindentListItem();
+        const unindentType = anchorBlock._getUnindentType?.();
+        if (unindentType != null) {
+          anchorBlock._unindentListItem(unindentType);
+        }
       }
     },
     removeList: () => {

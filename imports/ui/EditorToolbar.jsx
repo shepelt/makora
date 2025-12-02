@@ -73,8 +73,15 @@ const icons = {
 };
 
 function ToolbarButton({ icon, title, onClick, disabled, active, testId }) {
+  // Prevent focus loss from editor when clicking toolbar buttons (issue #26)
+  // On iPad, tapping a button steals focus before onClick fires, clearing the selection
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+  };
+
   return (
     <button
+      onMouseDown={handleMouseDown}
       onClick={onClick}
       disabled={disabled}
       title={title}
@@ -114,9 +121,15 @@ function HeadingDropdown({ onSelect, currentHeading, disabled }) {
     { level: 6, label: 'Heading 6' },
   ];
 
+  // Prevent focus loss from editor when clicking toolbar buttons (issue #26)
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+  };
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
+        onMouseDown={handleMouseDown}
         onClick={() => setOpen(!open)}
         disabled={disabled}
         title="Heading"
@@ -132,6 +145,7 @@ function HeadingDropdown({ onSelect, currentHeading, disabled }) {
           {headings.map(({ level, label }) => (
             <button
               key={level}
+              onMouseDown={handleMouseDown}
               onClick={() => {
                 // If clicking the current heading (non-paragraph), toggle to paragraph
                 if (currentHeading === level && level !== 0) {
@@ -178,9 +192,15 @@ function ListDropdown({ onSelect, currentList, disabled }) {
     { type: 'task-list', label: 'Task List', icon: icons.taskList },
   ];
 
+  // Prevent focus loss from editor when clicking toolbar buttons (issue #26)
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+  };
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
+        onMouseDown={handleMouseDown}
         onClick={() => setOpen(!open)}
         disabled={disabled}
         title="List"
@@ -196,6 +216,7 @@ function ListDropdown({ onSelect, currentList, disabled }) {
           {lists.map(({ type, label, icon }) => (
             <button
               key={type}
+              onMouseDown={handleMouseDown}
               onClick={() => {
                 // If clicking the current list type, toggle OFF to paragraph
                 if (currentList === type) {

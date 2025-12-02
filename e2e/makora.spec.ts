@@ -1911,6 +1911,42 @@ test.describe('Makora Editor Toolbar', () => {
     // Verify it's now a regular paragraph (not in a list)
     await expect(page.locator('.mu-editor .mu-paragraph').getByText('List Toggle Test Item')).toBeVisible({ timeout: 5000 });
   });
+
+  test('toolbar outdent works for indented list items (issue #26)', async ({ page }) => {
+    await openTestFile(page);
+
+    // The existing test file has a bullet list. Let's add a nested item to test outdent.
+    // Click on "Bullet point two" which is in the existing list
+    const bulletTwo = page.getByText('Bullet point two');
+    await bulletTwo.click();
+    await page.keyboard.press('End');
+    await page.waitForTimeout(200);
+
+    // Create a new list item and indent it with Tab (keyboard Tab works per user)
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Nested item');
+    await page.waitForTimeout(200);
+
+    // Indent with Tab key (user confirmed this works)
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(300);
+
+    // Verify we have a nested list
+    const bulletList = page.locator('.mu-editor .mu-bullet-list').first();
+    const nestedList = bulletList.locator('.mu-bullet-list');
+    await expect(nestedList).toBeVisible({ timeout: 5000 });
+    await expect(nestedList.getByText('Nested item')).toBeVisible();
+
+    // Test toolbar outdent button - THIS WAS THE BUG
+    // Without fix: _unindentListItem() called without required type argument
+    await page.getByTestId('toolbar-outdent').click();
+    await page.waitForTimeout(300);
+
+    // After toolbar outdent, nested list should be gone (item moved up a level)
+    await expect(nestedList).not.toBeVisible({ timeout: 5000 });
+    // The item should still exist but at the parent level
+    await expect(bulletList.getByText('Nested item')).toBeVisible();
+  });
 });
 
 test.describe('Makora Sorting', () => {
