@@ -259,6 +259,29 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
           }
         }, 0);
       }
+
+      // Handle End/Home keys for mobile compatibility (issue #26)
+      // Mobile browsers don't always handle these keys correctly in contentEditable
+      if (e.key === 'End' || e.key === 'Home') {
+        const muya = muyaRef.current;
+        if (!muya) return;
+
+        const selection = muya.editor.selection.getSelection();
+        const anchorBlock = selection?.anchorBlock;
+        if (!anchorBlock) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const textLength = anchorBlock.text?.length || 0;
+        if (e.key === 'End') {
+          // Move cursor to end of current content block
+          anchorBlock.setCursor(textLength, textLength, true);
+        } else {
+          // Move cursor to start of current content block
+          anchorBlock.setCursor(0, 0, true);
+        }
+      }
     };
 
     keyDownHandlerRef.current = { handleBeforeInput, handleKeyDown };
@@ -292,11 +315,40 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
     },
     getContent: () => {
       if (muyaRef.current) {
+        const muya = muyaRef.current;
+
+        // WORKAROUND for iPad (issue #26): Force blur/focus to commit any pending iOS input
+        // iOS holds predictive/autocorrect text in a composition buffer until blur
+        const activeEl = document.activeElement;
+        if (activeEl && muya.domNode?.contains(activeEl)) {
+          activeEl.blur();
+          activeEl.focus();
+        }
+
         // Flush any pending operations to ensure we get the latest content
-        // (operations are batched with requestAnimationFrame, so typing may not be reflected yet)
-        // Note: flush emits json-change which updates dirty state through our handler
-        muyaRef.current.editor.jsonState.flush?.();
-        return muyaRef.current.getMarkdown();
+        muya.editor.jsonState.flush?.();
+
+        // WORKAROUND for iPad: Force sync text from DOM to internal state
+        // On iPad, input events sometimes don't update Muya's internal state
+        const syncContentFromDOM = (block) => {
+          if (!block) return;
+          if (block.domNode && typeof block._text !== 'undefined') {
+            const domText = block.domNode.textContent || '';
+            if (block._text !== domText) {
+              block._text = domText;
+            }
+          }
+          if (block.children) {
+            let child = block.children.head;
+            while (child) {
+              syncContentFromDOM(child);
+              child = child.next;
+            }
+          }
+        };
+        syncContentFromDOM(muya.editor.scrollPage);
+
+        return muya.getMarkdown();
       }
       return '';
     },

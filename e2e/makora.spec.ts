@@ -469,6 +469,50 @@ test.describe.serial('Makora Editing', () => {
     await expect(page.getByText("console.log('Hello world')")).toBeVisible();
     await expect(page.getByText('Bullet point one')).toBeVisible();
   });
+
+  test('saves new list item added to existing list (issue #26)', async ({ page }) => {
+    await page.goto('/');
+    await waitForAppReady(page);
+
+    // Open test.md which has an existing bullet list
+    await page.getByText('test.md', { exact: true }).click();
+    await expect(page.getByText('Test Document')).toBeVisible({ timeout: 10000 });
+
+    // Wait for editor to be ready
+    await page.waitForTimeout(500);
+
+    // Find and click at the end of "Bullet point two"
+    const bulletTwo = page.getByText('Bullet point two');
+    await bulletTwo.click();
+    await page.keyboard.press('End');
+
+    // Press Enter to create a new list item, then type
+    await page.keyboard.press('Enter');
+    const timestamp = Date.now();
+    const newItemText = `New bullet item ${timestamp}`;
+    await page.keyboard.type(newItemText);
+
+    // Verify the new item appears in the editor
+    await expect(page.getByText(newItemText)).toBeVisible({ timeout: 5000 });
+
+    // Save the file
+    await page.keyboard.press('Control+s');
+    await expect(page.getByTitle('No unsaved changes')).toBeVisible({ timeout: 5000 });
+
+    // Wait for save to complete
+    await page.waitForTimeout(500);
+
+    // Reload and verify the new list item persisted
+    await page.reload();
+    await clickTestFile(page);
+
+    // The new list item should still be there after reload
+    await expect(page.getByText(newItemText)).toBeVisible({ timeout: 10000 });
+
+    // Original list items should also still exist
+    await expect(page.getByText('Bullet point one')).toBeVisible();
+    await expect(page.getByText('Bullet point two')).toBeVisible();
+  });
 });
 
 test.describe('Makora Performance', () => {
