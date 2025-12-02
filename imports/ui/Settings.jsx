@@ -108,7 +108,7 @@ export function Settings({ onSaved, isModal = false }) {
   // Only show loading screen for standalone mode (not modal)
   if (loading && !isModal) {
     return (
-      <div className="min-h-screen bg-ivory flex items-center justify-center">
+      <div className="min-h-dvh bg-ivory flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 py-12">
           <div className="w-6 h-6 border-2 border-cream border-t-charcoal rounded-full animate-spin" />
           <span className="text-warm-gray text-sm">Loading...</span>
@@ -313,7 +313,7 @@ export function Settings({ onSaved, isModal = false }) {
 
   // Standalone mode: wrap in full-screen layout
   return (
-    <div className="min-h-screen bg-ivory flex items-center justify-center relative overflow-hidden">
+    <div className="min-h-dvh bg-ivory flex items-center justify-center relative overflow-hidden">
       {/* Subtle paper texture overlay */}
       <div className="absolute inset-0 paper-texture pointer-events-none" />
 

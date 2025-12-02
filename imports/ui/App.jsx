@@ -410,7 +410,7 @@ function EditorPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-dvh flex flex-col">
       {/* Header */}
       <div className="bg-cream border-b border-cream px-4 py-2 flex items-center shrink-0 z-40">
         <h1 className="font-serif text-xl font-light text-charcoal">Makora</h1>
@@ -532,7 +532,7 @@ function AuthGate({ children }) {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-dvh flex items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
           <span className="text-sm text-gray-500">Loading...</span>
@@ -574,7 +574,7 @@ function WebDAVConfigGate({ children }) {
 
   if (webdavConfigured === null) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-dvh flex items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
           <span className="text-sm text-gray-500">Loading...</span>

@@ -13,7 +13,7 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-ivory flex items-center justify-center relative overflow-hidden">
+    <div className="min-h-dvh bg-ivory flex items-center justify-center relative overflow-hidden">
       {/* Subtle paper texture overlay */}
       <div className="absolute inset-0 paper-texture pointer-events-none" />
 
