@@ -16,9 +16,10 @@ async function waitForAppReady(page: Page) {
 // Helper to set up authenticated session for image proxy
 // This mimics how Meteor actually stores auth tokens (localStorage, not cookies)
 async function setupAuthSession(page: Page) {
-  // Clear file browser cache before app loads to avoid stale data between tests
+  // Clear caches before app loads to avoid stale data between tests
   await page.addInitScript(() => {
     localStorage.removeItem('fileBrowserCache');
+    localStorage.removeItem('fileContentCache');
   });
 
   await page.goto('/');
@@ -356,7 +357,7 @@ test.describe.serial('Makora Editing', () => {
   // Helper to click test.md in file browser (not header)
   const clickTestFile = async (page: any) => {
     await waitForAppReady(page);
-    // Target file browser item specifically (has truncate class), not header
+    // Target file browser item specifically (has truncate class, header doesn't)
     await page.locator('.truncate').getByText('test.md', { exact: true }).click();
   };
 

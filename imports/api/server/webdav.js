@@ -482,22 +482,41 @@ Meteor.methods({
     }
   },
 
-  async 'webdav.read'(path) {
+  async 'webdav.read'(path, options = {}) {
     requireAuth();
     const { baseUrl, auth } = await getConfig();
     const url = baseUrl + (path.startsWith('/') ? path : '/' + path);
 
     try {
+      const headers = { 'Authorization': auth };
+
+      // Add conditional headers if cached metadata provided
+      if (options.etag) {
+        headers['If-None-Match'] = options.etag;
+      }
+      if (options.lastModified) {
+        headers['If-Modified-Since'] = options.lastModified;
+      }
+
       const response = await fetch(url, {
         method: 'GET',
-        headers: { 'Authorization': auth },
+        headers,
       });
+
+      // 304 Not Modified - file hasn't changed
+      if (response.status === 304) {
+        return { notModified: true };
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      return await response.text();
+      const content = await response.text();
+      const etag = response.headers.get('ETag');
+      const lastModified = response.headers.get('Last-Modified');
+
+      return { content, etag, lastModified };
     } catch (err) {
       throw new Meteor.Error('webdav-error', err.message);
     }

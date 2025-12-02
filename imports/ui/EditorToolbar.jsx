@@ -242,7 +242,39 @@ function ListDropdown({ onSelect, currentList, disabled }) {
   );
 }
 
-export const EditorToolbar = memo(function EditorToolbar({ editorRef, disabled, currentHeading, currentList }) {
+// Save/status icon with loading and dirty states
+function SaveStatusIcon({ saving, loading, isDirty, onSave, disabled }) {
+  // Prevent focus loss from editor when clicking toolbar buttons
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+  };
+
+  const isSpinning = saving || loading;
+
+  return (
+    <button
+      onMouseDown={handleMouseDown}
+      onClick={onSave}
+      disabled={disabled || isSpinning}
+      title={loading ? 'Loading...' : saving ? 'Saving...' : isDirty ? 'Save changes (Ctrl+S)' : 'No unsaved changes'}
+      data-testid="toolbar-save"
+      className="relative p-1.5 rounded hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+    >
+      {isSpinning ? (
+        <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+      ) : (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+      {isDirty && !isSpinning && (
+        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full" />
+      )}
+    </button>
+  );
+}
+
+export const EditorToolbar = memo(function EditorToolbar({ editorRef, disabled, currentHeading, currentList, saving, loading, isDirty, onSave, onReload, onClose }) {
   const handleBold = useCallback(() => {
     editorRef.current?.format?.('strong');
   }, [editorRef]);
@@ -342,6 +374,44 @@ export const EditorToolbar = memo(function EditorToolbar({ editorRef, disabled, 
         onClick={handleCode}
         disabled={disabled}
         testId="toolbar-code"
+      />
+
+      {/* Spacer to push save to the right */}
+      <div className="flex-1" />
+
+      {/* Reload button */}
+      <ToolbarButton
+        icon={
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        }
+        title="Reload file"
+        onClick={onReload}
+        disabled={disabled}
+        testId="toolbar-reload"
+      />
+
+      {/* Save/status icon */}
+      <SaveStatusIcon
+        saving={saving}
+        loading={loading}
+        isDirty={isDirty}
+        onSave={onSave}
+        disabled={disabled}
+      />
+
+      {/* Close button */}
+      <ToolbarButton
+        icon={
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        }
+        title="Close file"
+        onClick={onClose}
+        disabled={disabled}
+        testId="toolbar-close"
       />
     </div>
   );

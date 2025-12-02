@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
@@ -9,6 +10,37 @@ import { Login } from './Login';
 import { Settings } from './Settings';
 import { EditorToolbar } from './EditorToolbar';
 import { FileItems } from '../api/collections';
+
+// File content cache helpers
+const FILE_CACHE_KEY = 'fileContentCache';
+const FILE_CACHE_VERSION = 1;
+
+function getFileCache(path) {
+  try {
+    const raw = localStorage.getItem(FILE_CACHE_KEY);
+    if (!raw) return null;
+    const cache = JSON.parse(raw);
+    if (cache.version !== FILE_CACHE_VERSION) return null;
+    return cache.files?.[path] || null;
+  } catch {
+    return null;
+  }
+}
+
+function setFileCache(path, data) {
+  try {
+    const raw = localStorage.getItem(FILE_CACHE_KEY);
+    const cache = raw ? JSON.parse(raw) : { version: FILE_CACHE_VERSION, files: {} };
+    if (cache.version !== FILE_CACHE_VERSION) {
+      cache.version = FILE_CACHE_VERSION;
+      cache.files = {};
+    }
+    cache.files[path] = { ...data, cachedAt: Date.now() };
+    localStorage.setItem(FILE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // localStorage might be full
+  }
+}
 
 function UserMenu({ onOpenSettings }) {
   const [open, setOpen] = useState(false);
@@ -166,9 +198,17 @@ function EditorPage() {
   }, []);
 
 
+  // Track currently loaded file to avoid unnecessary reloads
+  const loadedFileRef = useRef(null);
+
   // Load file from URL on mount or when file param changes
   useEffect(() => {
     if (currentFile) {
+      // Skip reload if same file (e.g., closing and reopening)
+      if (currentFile === loadedFileRef.current) {
+        return;
+      }
+      loadedFileRef.current = currentFile;
       loadFile(currentFile);
     }
   }, [currentFile]);
@@ -185,75 +225,126 @@ function EditorPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedFile, fileDir]);
 
-  const loadFile = async (filePath) => {
-    console.log('Loading file:', filePath);
-    setLoading(true);
+  // Transform image URLs for display
+  const transformContent = (rawContent, dir) => {
+    const normalizedContent = rawContent?.replace(/\r\n/g, '\n') || '';
 
-    try {
-      const fileContent = await Meteor.callAsync('webdav.read', filePath);
-      // Normalize CRLF to LF - Muya parser doesn't handle Windows line endings well
-      const normalizedContent = fileContent?.replace(/\r\n/g, '\n') || '';
-      console.log('Got content, length:', normalizedContent?.length);
-      const basename = filePath.split('/').pop();
-      const dir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
+    const transformSrc = (src) => {
+      const token = Meteor._localStorage.getItem('Meteor.loginToken');
+      const tokenParam = token ? `?token=${token}` : '';
+
+      // Route external URLs through proxy with query params
+      if (src.startsWith('http://') || src.startsWith('https://')) {
+        const params = new URLSearchParams();
+        params.set('url', src);
+        if (token) params.set('token', token);
+        return `${window.location.origin}/image-proxy?${params.toString()}`;
+      }
+      // Skip if already a proxy URL (but ensure it's absolute for Muya)
+      if (src.startsWith('/image-proxy') || src.startsWith('/webdav-proxy') || src.startsWith('/external-proxy')) {
+        return window.location.origin + src;
+      }
+      // Decode URL-encoded paths and resolve relative path
+      const decodedSrc = decodeURIComponent(src);
+      const cleanSrc = decodedSrc.replace(/^\.\//, '');
+      const absolutePath = `${dir}/${cleanSrc}`.replace(/\/+/g, '/');
+      // Encode path segments but keep slashes
+      const encodedPath = absolutePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+      // Use unified proxy for WebDAV paths too
+      return `${window.location.origin}/image-proxy${encodedPath}${tokenParam}`;
+    };
+
+    return normalizedContent
+      // Convert HTML img tags to markdown syntax first
+      .replace(/<img\s+[^>]*?src=["']([^"']+)["'][^>]*?alt=["']([^"']*)["'][^>]*>/gi, (match, src, alt) => {
+        return `![${alt}](${transformSrc(src)})`;
+      })
+      .replace(/<img\s+[^>]*?alt=["']([^"']*)["'][^>]*?src=["']([^"']+)["'][^>]*>/gi, (match, alt, src) => {
+        return `![${alt}](${transformSrc(src)})`;
+      })
+      // Handle img tags without alt attribute
+      .replace(/<img\s+[^>]*?src=["']([^"']+)["'][^>]*>/gi, (match, src) => {
+        return `![](${transformSrc(src)})`;
+      })
+      // Transform markdown images: ![alt](src)
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+        // Only transform if not already transformed (check both relative and absolute proxy URLs)
+        if (src.startsWith('/image-proxy') || src.startsWith('/webdav-proxy') || src.startsWith('/external-proxy') ||
+            src.includes('/image-proxy') || src.includes('/webdav-proxy') || src.includes('/external-proxy')) {
+          return match;
+        }
+        return `![${alt}](${transformSrc(src)})`;
+      });
+  };
+
+  const loadFile = async (filePath, forceReload = false) => {
+    console.log('Loading file:', filePath, forceReload ? '(forced)' : '');
+    const basename = filePath.split('/').pop();
+    const dir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
+
+    // Force immediate re-render to show loading state before editor remounts
+    flushSync(() => {
+      setLoading(true);
       setSelectedFile({ filename: filePath, basename });
       setFileDir(dir);
+    });
 
-      const transformSrc = (src) => {
-        const token = Meteor._localStorage.getItem('Meteor.loginToken');
-        const tokenParam = token ? `?token=${token}` : '';
+    // Check for cached content first (skip if forcing reload)
+    const cached = forceReload ? null : getFileCache(filePath);
+    let usedCache = false;
 
-        // Route external URLs through proxy with query params
-        if (src.startsWith('http://') || src.startsWith('https://')) {
-          const params = new URLSearchParams();
-          params.set('url', src);
-          if (token) params.set('token', token);
-          return `${window.location.origin}/image-proxy?${params.toString()}`;
-        }
-        // Skip if already a proxy URL (but ensure it's absolute for Muya)
-        if (src.startsWith('/image-proxy') || src.startsWith('/webdav-proxy') || src.startsWith('/external-proxy')) {
-          return window.location.origin + src;
-        }
-        // Decode URL-encoded paths and resolve relative path
-        const decodedSrc = decodeURIComponent(src);
-        const cleanSrc = decodedSrc.replace(/^\.\//, '');
-        const absolutePath = `${dir}/${cleanSrc}`.replace(/\/+/g, '/');
-        // Encode path segments but keep slashes
-        const encodedPath = absolutePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
-        // Use unified proxy for WebDAV paths too
-        return `${window.location.origin}/image-proxy${encodedPath}${tokenParam}`;
-      };
+    if (cached?.content) {
+      console.log('Using cached content for:', filePath);
+      // Show cached content
+      pendingContentRef.current = transformContent(cached.content, dir);
+      setEditorKey(k => k + 1);
+      usedCache = true;
+    } else {
+      // No cache - clear old editor content
+      pendingContentRef.current = '';
+      setEditorKey(k => k + 1);
+    }
 
-      let transformedContent = normalizedContent
-        // Convert HTML img tags to markdown syntax first
-        .replace(/<img\s+[^>]*?src=["']([^"']+)["'][^>]*?alt=["']([^"']*)["'][^>]*>/gi, (match, src, alt) => {
-          return `![${alt}](${transformSrc(src)})`;
-        })
-        .replace(/<img\s+[^>]*?alt=["']([^"']*)["'][^>]*?src=["']([^"']+)["'][^>]*>/gi, (match, alt, src) => {
-          return `![${alt}](${transformSrc(src)})`;
-        })
-        // Handle img tags without alt attribute
-        .replace(/<img\s+[^>]*?src=["']([^"']+)["'][^>]*>/gi, (match, src) => {
-          return `![](${transformSrc(src)})`;
-        })
-        // Transform markdown images: ![alt](src)
-        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
-          // Only transform if not already transformed (check both relative and absolute proxy URLs)
-          if (src.startsWith('/image-proxy') || src.startsWith('/webdav-proxy') || src.startsWith('/external-proxy') ||
-              src.includes('/image-proxy') || src.includes('/webdav-proxy') || src.includes('/external-proxy')) {
-            return match;
-          }
-          return `![${alt}](${transformSrc(src)})`;
-        });
+    try {
+      // Fetch from server (with conditional headers if we have cache metadata)
+      const options = cached ? { etag: cached.etag, lastModified: cached.lastModified } : {};
+      const result = await Meteor.callAsync('webdav.read', filePath, options);
 
-      // Pass raw markdown to editor - Muya handles parsing
-      // Store the transformed content temporarily for the editor to use on mount
-      pendingContentRef.current = transformedContent;
+      if (result.notModified) {
+        // Cache is still valid, nothing to update
+        console.log('Cache still valid (304):', filePath);
+        setLoading(false);
+        return;
+      }
+
+      // Got new content
+      console.log('Got fresh content, length:', result.content?.length);
+
+      // Update cache
+      setFileCache(filePath, {
+        content: result.content,
+        etag: result.etag,
+        lastModified: result.lastModified,
+      });
+
+      // If we already showed cached content, check if it actually changed
+      if (usedCache && cached.content === result.content) {
+        // Content is the same, no need to update editor
+        console.log('Content unchanged, keeping cached version');
+        setLoading(false);
+        return;
+      }
+
+      // Update editor with new content
+      pendingContentRef.current = transformContent(result.content, dir);
       setEditorKey(k => k + 1);
     } catch (err) {
       console.error('Failed to load file:', err);
-      pendingContentRef.current = `Error loading file: ${err.message}`;
-      setEditorKey(k => k + 1);
+      if (!usedCache) {
+        // Only show error if we didn't have cached content
+        pendingContentRef.current = `Error loading file: ${err.message}`;
+        setEditorKey(k => k + 1);
+      }
       setLoading(false);
     }
     // Note: setLoading(false) is called by MuyaEditor's onReady callback
@@ -414,31 +505,10 @@ function EditorPage() {
       {/* Header */}
       <div className="bg-cream border-b border-cream px-4 py-2 flex items-center shrink-0 z-40">
         <h1 className="font-serif text-xl font-light text-charcoal">Makora</h1>
-        <span className="flex-1 text-center text-sm text-warm-gray">
-          {selectedFile ? (loading ? 'Loading...' : selectedFile.basename) : ''}
+        <span className="flex-1 text-center text-sm text-warm-gray overflow-hidden text-ellipsis whitespace-nowrap px-4">
+          {currentFile ? currentFile.split('/').pop() : ''}
         </span>
-        <div className="flex items-center gap-3">
-          {selectedFile && (
-            <button
-              onClick={saveFile}
-              disabled={loading || saving}
-              className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg disabled:opacity-50"
-              title={isDirty ? 'Save changes (Ctrl+S)' : 'No unsaved changes'}
-            >
-              {saving ? (
-                <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-              {isDirty && !saving && (
-                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full" />
-              )}
-            </button>
-          )}
-          <UserMenu onOpenSettings={() => setShowSettings(true)} />
-        </div>
+        <UserMenu onOpenSettings={() => setShowSettings(true)} />
       </div>
 
       {/* Main content */}
@@ -453,26 +523,41 @@ function EditorPage() {
             />
           }
           right={
-            currentFile ? (
-              <div className="h-full bg-white flex flex-col relative">
+            <div className="h-full relative">
+              {/* Editor - stays mounted, hidden when no file selected */}
+              <div className={`h-full bg-white flex flex-col ${currentFile ? '' : 'invisible'}`}>
                 {/* Toolbar */}
                 <EditorToolbar
                   editorRef={editorRef}
                   disabled={loading}
                   currentHeading={blockInfo.headingLevel}
                   currentList={blockInfo.listType}
+                  saving={saving}
+                  loading={loading}
+                  isDirty={isDirty}
+                  onSave={saveFile}
+                  onReload={() => {
+                    if (currentFile) {
+                      // Force reload from server, bypassing cache
+                      loadedFileRef.current = currentFile;
+                      loadFile(currentFile, true);
+                    }
+                  }}
+                  onClose={() => {
+                    setSearchParams(prev => {
+                      const next = new URLSearchParams(prev);
+                      next.delete('file');
+                      return next;
+                    });
+                    setSelectedFile(null);
+                  }}
                 />
 
                 {/* Editor area */}
                 <div className="flex-1 overflow-auto relative">
-                  {/* Show loading spinner overlay while loading */}
+                  {/* Hide old content while loading new file */}
                   {loading && (
-                    <div className="absolute inset-0 bg-white flex items-center justify-center z-10">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-                        <span className="text-sm text-gray-500">Loading...</span>
-                      </div>
-                    </div>
+                    <div className="absolute inset-0 bg-white z-10" />
                   )}
                   {/* Only render editor once we have content (editorKey > 0) */}
                   {editorKey > 0 && (
@@ -487,9 +572,10 @@ function EditorPage() {
                   )}
                 </div>
               </div>
-            ) : (
-              <WelcomeScreen />
-            )
+
+              {/* Welcome screen - shown when no file selected */}
+              {!currentFile && <WelcomeScreen />}
+            </div>
           }
         />
       </div>
