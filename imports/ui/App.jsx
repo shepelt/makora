@@ -350,8 +350,8 @@ function EditorPage() {
 
     setSaving(true);
     try {
-      // Get content synchronously from editor
-      const currentContent = editorRef.current?.getContent() || '';
+      // Get content from editor (async to wait for IME composition to end)
+      const currentContent = await editorRef.current?.getContentAsync() || '';
       // Just restore relative image paths
       const saveContent = prepareForSave(currentContent);
       await Meteor.callAsync('webdav.write', selectedFile.filename, saveContent);

@@ -319,6 +319,7 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
 
         // WORKAROUND for iPad (issue #26): Force blur/focus to commit any pending iOS input
         // iOS holds predictive/autocorrect text in a composition buffer until blur
+        // This also ends IME composition on desktop, ensuring text is committed.
         const activeEl = document.activeElement;
         if (activeEl && muya.domNode?.contains(activeEl)) {
           activeEl.blur();
@@ -328,14 +329,13 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
         // Flush any pending operations to ensure we get the latest content
         muya.editor.jsonState.flush?.();
 
-        // WORKAROUND for iPad: Force sync text from DOM to internal state
-        // On iPad, input events sometimes don't update Muya's internal state
+        // Sync text from DOM to internal state (for iPad compatibility)
         const syncContentFromDOM = (block) => {
           if (!block) return;
-          if (block.domNode && typeof block._text !== 'undefined') {
+          if (block.domNode && typeof block.text !== 'undefined') {
             const domText = block.domNode.textContent || '';
-            if (block._text !== domText) {
-              block._text = domText;
+            if (block.text !== domText) {
+              block.text = domText;
             }
           }
           if (block.children) {
@@ -351,6 +351,33 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
         return muya.getMarkdown();
       }
       return '';
+    },
+    // Async version of getContent that handles IME composition properly
+    getContentAsync: () => {
+      return new Promise((resolve) => {
+        if (!muyaRef.current) {
+          resolve('');
+          return;
+        }
+        const muya = muyaRef.current;
+        const activeBlock = muya.editor.activeContentBlock;
+
+        // Sync active block from DOM to capture any uncommitted IME text
+        // Use the `text` setter to also update JSON state (which getMarkdown reads from)
+        if (activeBlock?.domNode) {
+          const domText = activeBlock.domNode.textContent || '';
+          if (activeBlock._text !== domText) {
+            activeBlock.text = domText;
+          }
+        }
+
+        // Flush JSON state to ensure changes are applied
+        muya.editor.jsonState.flush?.();
+
+        // Get content
+        const content = muyaRef.current?.getMarkdown() || '';
+        resolve(content);
+      });
     },
     // Force a dirty state check (useful after undo/redo)
     checkDirty: () => {
