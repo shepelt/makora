@@ -269,6 +269,72 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
         }, 0);
       }
 
+      // Handle Backspace/Delete in list items (issue #34)
+      // When clicking directly on nested list items, Muya may not properly handle backspace
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        const muya = muyaRef.current;
+        if (!muya) return;
+
+        // Only handle if focus is inside the editor container
+        if (!containerRef.current?.contains(e.target)) return;
+
+        // Get the current selection
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return;
+
+        const range = sel.getRangeAt(0);
+        const container = range.startContainer;
+
+        // Check if we're in a list item
+        const listItem = container.nodeType === Node.TEXT_NODE
+          ? container.parentElement?.closest('li.mu-list-item')
+          : container.closest?.('li.mu-list-item');
+
+        if (listItem) {
+          // For backspace, delete the character before cursor
+          if (e.key === 'Backspace' && range.collapsed && range.startOffset > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Use execCommand for reliable deletion in contenteditable
+            document.execCommand('delete', false, null);
+            return;
+          }
+          // For delete key, delete the character after cursor
+          if (e.key === 'Delete' && range.collapsed) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            document.execCommand('forwardDelete', false, null);
+            return;
+          }
+        }
+      }
+
+      // Handle Tab key - prevent browser's default focus navigation (issue #34)
+      // Muya handles the actual Tab behavior (indent/insertTab) internally
+      if (e.key === 'Tab') {
+        if (!containerRef.current?.contains(e.target)) return;
+        // Prevent browser's default Tab navigation
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Muya's tabHandler is called via its own event listener, but we need to
+        // ensure it runs. Since we're stopping propagation, manually trigger it.
+        const muya = muyaRef.current;
+        if (muya) {
+          const selection = muya.editor.selection.getSelection();
+          const anchorBlock = selection?.anchorBlock;
+          if (anchorBlock && typeof anchorBlock.tabHandler === 'function') {
+            anchorBlock.tabHandler(e);
+            // Ensure focus stays in editor after Tab operation
+            setTimeout(() => {
+              containerRef.current?.querySelector('.mu-editor')?.focus();
+            }, 0);
+          }
+        }
+      }
+
       // Handle End/Home keys for mobile compatibility (issue #26)
       // Mobile browsers don't always handle these keys correctly in contentEditable
       if (e.key === 'End' || e.key === 'Home') {
@@ -495,7 +561,11 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
       const anchorBlock = selection?.anchorBlock;
 
       // indentListItem is a method on paragraph content blocks inside list items
+      // Must check _canIndentListItem first to avoid null reference errors
       if (anchorBlock && typeof anchorBlock._indentListItem === 'function') {
+        if (typeof anchorBlock._canIndentListItem === 'function' && !anchorBlock._canIndentListItem()) {
+          return; // Can't indent (e.g., first item in list has no prev sibling)
+        }
         anchorBlock._indentListItem();
       }
     },
