@@ -3,10 +3,25 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 const THRESHOLD = 80; // Pull distance to trigger refresh
 const MAX_PULL = 120; // Maximum pull distance
 
+// Find the scrollable parent element
+function findScrollableParent(element) {
+  if (!element) return null;
+
+  let current = element;
+  while (current && current !== document.body) {
+    const style = window.getComputedStyle(current);
+    const overflowY = style.overflowY;
+    if ((overflowY === 'auto' || overflowY === 'scroll') && current.scrollHeight > current.clientHeight) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 export function PullToRefresh({ onRefresh, disabled, children }) {
   const [pullDistance, setPullDistance] = useState(0);
   const touchStartY = useRef(0);
-  const scrollableRef = useRef(null);
   const containerRef = useRef(null);
   const pullDistanceRef = useRef(0); // Track pull distance for event handlers
 
@@ -15,22 +30,30 @@ export function PullToRefresh({ onRefresh, disabled, children }) {
     pullDistanceRef.current = pullDistance;
   }, [pullDistance]);
 
+  // Check if document is scrolled to top
+  const isAtDocumentTop = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return true;
+
+    // Find the actual scrollable element (could be the container or a child)
+    const scrollable = findScrollableParent(container.querySelector('.mu-editor')) || container;
+    return scrollable.scrollTop <= 0;
+  }, []);
+
   const handleTouchStart = useCallback((e) => {
     if (disabled) return;
 
     // Only track if at top of scroll
-    const scrollable = scrollableRef.current;
-    if (scrollable && scrollable.scrollTop > 0) return;
+    if (!isAtDocumentTop()) return;
 
     touchStartY.current = e.touches[0].clientY;
-  }, [disabled]);
+  }, [disabled, isAtDocumentTop]);
 
   const handleTouchMove = useCallback((e) => {
     if (disabled || touchStartY.current === 0) return;
 
     // Only allow pull if at top of scroll
-    const scrollable = scrollableRef.current;
-    if (scrollable && scrollable.scrollTop > 0) {
+    if (!isAtDocumentTop()) {
       touchStartY.current = 0;
       setPullDistance(0);
       return;
@@ -49,7 +72,7 @@ export function PullToRefresh({ onRefresh, disabled, children }) {
         e.preventDefault();
       }
     }
-  }, [disabled]);
+  }, [disabled, isAtDocumentTop]);
 
   const handleTouchEnd = useCallback(() => {
     if (disabled) return;
@@ -106,7 +129,6 @@ export function PullToRefresh({ onRefresh, disabled, children }) {
 
       {/* Content with pull transform */}
       <div
-        ref={scrollableRef}
         className="h-full overflow-auto"
         style={{
           transform: pullDistance > 0 ? `translateY(${pullDistance}px)` : 'none',
