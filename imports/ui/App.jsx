@@ -180,6 +180,8 @@ function EditorPage() {
   const [blockInfo, setBlockInfo] = useState({ headingLevel: null, listType: null });
   const editorRef = React.useRef(null);
   const pendingContentRef = React.useRef('');
+  // Track if basePath has been resolved from settings
+  const [basePathReady, setBasePathReady] = useState(!!searchParams.get('path'));
 
   // Load saved basePath into URL on mount (if no path param already)
   useEffect(() => {
@@ -196,6 +198,8 @@ function EditorPage() {
         }
       } catch (err) {
         console.error('Failed to load basePath:', err);
+      } finally {
+        setBasePathReady(true);
       }
     };
     loadBasePath();
@@ -552,13 +556,19 @@ function EditorPage() {
         <SplitPanel
           showRightPane={!!currentFile && (!loading || reloading)}
           left={
-            <FileBrowser
-              basePath={basePath}
-              onFileSelect={handleFileSelect}
-              onFileDelete={handleFileDelete}
-              currentFilePath={currentFile}
-              loadingFilePath={loadingFilePath}
-            />
+            basePathReady ? (
+              <FileBrowser
+                basePath={basePath}
+                onFileSelect={handleFileSelect}
+                onFileDelete={handleFileDelete}
+                currentFilePath={currentFile}
+                loadingFilePath={loadingFilePath}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center bg-gray-50">
+                <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+              </div>
+            )
           }
           right={
             <div className="h-full relative">
