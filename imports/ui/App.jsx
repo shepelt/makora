@@ -14,6 +14,7 @@ import { FileItems } from '../api/collections';
 const FILE_CACHE_KEY = 'fileContentCache';
 const FILE_CACHE_VERSION = 1;
 const LAST_FILE_KEY = 'lastOpenedFile';
+const DOM_CACHE_PREFIX = 'domCache:';
 
 function getLastFile() {
   try {
@@ -57,6 +58,22 @@ function setFileCache(path, data) {
     }
     cache.files[path] = { ...data, cachedAt: Date.now() };
     localStorage.setItem(FILE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // localStorage might be full
+  }
+}
+
+function getDomCache(path) {
+  try {
+    return localStorage.getItem(DOM_CACHE_PREFIX + path);
+  } catch {
+    return null;
+  }
+}
+
+function setDomCache(path, html) {
+  try {
+    localStorage.setItem(DOM_CACHE_PREFIX + path, html);
   } catch {
     // localStorage might be full
   }
@@ -204,6 +221,10 @@ function EditorPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [blockInfo, setBlockInfo] = useState({ headingLevel: null, listType: null });
+  // Track if Muya editor has finished initializing (separate from file loading)
+  const [editorReady, setEditorReady] = useState(false);
+  // Cached DOM preview HTML (shown while Muya initializes)
+  const [domPreview, setDomPreview] = useState(null);
   const editorRef = React.useRef(null);
   const pendingContentRef = React.useRef('');
   // Track if basePath has been resolved from settings
@@ -213,37 +234,64 @@ function EditorPage() {
   useEffect(() => {
     const hasPath = searchParams.get('path');
     const hasFile = searchParams.get('file');
+    console.log('[Mount] hasPath:', hasPath, 'hasFile:', hasFile, 'URL:', window.location.href);
 
     // If we already have both path and file, we're done
     if (hasPath && hasFile) {
+      console.log('[Mount] Already have path and file');
       setBasePathReady(true);
       return;
     }
 
+    // Optimistically restore last file from localStorage immediately (no server call needed)
+    // This allows cached content to render while we verify settings in background
+    const lastFile = getLastFile();
+    console.log('[Mount] lastFile:', lastFile);
+    if (!hasFile && lastFile) {
+      const updates = new URLSearchParams(searchParams);
+      updates.set('file', lastFile);
+      // Also set path from localStorage cache if available
+      const cachedBasePath = localStorage.getItem('makora:basePath');
+      console.log('[Mount] Setting file from localStorage, cachedBasePath:', cachedBasePath);
+      if (!hasPath && cachedBasePath) {
+        updates.set('path', cachedBasePath);
+      }
+      setSearchParams(updates);
+      setBasePathReady(true);
+    }
+
+    // Load settings from server (for basePath and to verify rememberLastFile is still enabled)
     const loadSettings = async () => {
       try {
         const settings = await Meteor.callAsync('settings.getWebdav');
-        const updates = new URLSearchParams(searchParams);
+        console.log('[Mount] settings loaded, rememberLastFile:', settings?.rememberLastFile);
+
+        // Re-read current params (they may have changed since effect started)
+        const currentParams = new URLSearchParams(window.location.search);
+        const currentHasFile = currentParams.get('file');
+        const currentHasPath = currentParams.get('path');
+
+        const updates = new URLSearchParams(currentParams);
         let needsUpdate = false;
 
+        // Cache basePath for next cold start
+        if (settings?.basePath) {
+          localStorage.setItem('makora:basePath', settings.basePath);
+        }
+
         // Set basePath if not already set
-        if (!hasPath && settings?.basePath && settings.basePath !== '/') {
+        if (!currentHasPath && settings?.basePath && settings.basePath !== '/') {
           updates.set('path', settings.basePath);
           needsUpdate = true;
         }
 
-        // Restore last file if enabled and no file currently open
-        if (!hasFile && settings?.rememberLastFile) {
-          const lastFile = getLastFile();
-          if (lastFile) {
-            updates.set('file', lastFile);
-            needsUpdate = true;
-          } else {
-            // No last file to restore, clear loading state
-            setLoading(false);
-          }
-        } else if (!hasFile) {
-          // rememberLastFile is disabled, clear loading state
+        // If rememberLastFile is disabled but we optimistically loaded a file, clear it
+        if (!hasFile && !settings?.rememberLastFile && lastFile) {
+          console.log('[Mount] rememberLastFile disabled, clearing file');
+          updates.delete('file');
+          needsUpdate = true;
+          setLoading(false);
+        } else if (!hasFile && !lastFile) {
           setLoading(false);
         }
 
@@ -344,9 +392,16 @@ function EditorPage() {
   };
 
   const loadFile = async (filePath, forceReload = false) => {
-    console.log('Loading file:', filePath, forceReload ? '(forced)' : '');
     const basename = filePath.split('/').pop();
     const dir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
+
+    // Load DOM cache for instant preview
+    const cachedHtml = getDomCache(filePath);
+    if (cachedHtml) {
+      setDomPreview(cachedHtml);
+    } else {
+      setDomPreview(null);
+    }
 
     // Update loading state immediately
     setLoading(true);
@@ -359,11 +414,39 @@ function EditorPage() {
     let usedCache = false;
 
     if (cached?.content) {
-      console.log('Using cached content for:', filePath);
       // Show cached content immediately while we fetch fresh data
       pendingContentRef.current = transformContent(cached.content, dir);
+      setEditorReady(false); // Reset - Muya needs to initialize
       setEditorKey(k => k + 1);
+      // Hide spinner immediately - cached content will render
+      // Server fetch continues in background to check for updates
+      setLoading(false);
+      setLoadingFilePath(null);
       usedCache = true;
+
+      // Fetch fresh data in background (non-blocking)
+      const options = { etag: cached.etag, lastModified: cached.lastModified };
+      Meteor.callAsync('webdav.read', filePath, options).then(result => {
+        if (result.notModified) {
+          console.log('Cache still valid (304):', filePath);
+          return;
+        }
+        console.log('Got fresh content, length:', result.content?.length);
+        setFileCache(filePath, {
+          content: result.content,
+          etag: result.etag,
+          lastModified: result.lastModified,
+        });
+        // Only update editor if content actually changed
+        if (cached.content !== result.content) {
+          pendingContentRef.current = transformContent(result.content, dir);
+          setEditorReady(false);
+          setEditorKey(k => k + 1);
+        }
+      }).catch(err => {
+        console.error('Background refresh failed:', err);
+      });
+      return;
     }
     // If no cache: don't mount editor yet - wait for server response
     // This prevents showing empty editor with blinking cursor
@@ -375,15 +458,11 @@ function EditorPage() {
 
       if (result.notModified) {
         // Cache is still valid, nothing to update
-        console.log('Cache still valid (304):', filePath);
         setLoading(false);
         setLoadingFilePath(null);
         setReloading(false);
         return;
       }
-
-      // Got new content
-      console.log('Got fresh content, length:', result.content?.length);
 
       // Update cache
       setFileCache(filePath, {
@@ -395,7 +474,6 @@ function EditorPage() {
       // If we already showed cached content, check if it actually changed
       if (usedCache && cached.content === result.content) {
         // Content is the same, no need to update editor
-        console.log('Content unchanged, keeping cached version');
         setLoading(false);
         setLoadingFilePath(null);
         setReloading(false);
@@ -404,12 +482,14 @@ function EditorPage() {
 
       // Update editor with new content
       pendingContentRef.current = transformContent(result.content, dir);
+      setEditorReady(false);
       setEditorKey(k => k + 1);
     } catch (err) {
       console.error('Failed to load file:', err);
       if (!usedCache) {
         // Only show error if we didn't have cached content
         pendingContentRef.current = `Error loading file: ${err.message}`;
+        setEditorReady(false);
         setEditorKey(k => k + 1);
       }
       setLoading(false);
@@ -680,13 +760,62 @@ function EditorPage() {
                         initialValue={pendingContentRef.current}
                         onDirtyChange={setIsDirty}
                         onReady={() => {
+                          console.log('[Editor] onReady called, currentFile:', currentFile);
+                          setEditorReady(true);
+                          setDomPreview(null); // Clear preview, show live editor
                           setLoading(false);
                           setLoadingFilePath(null);
                           setReloading(false);
+                          // Save DOM cache for next load
+                          if (currentFile) {
+                            const editorEl = document.querySelector('.mu-editor');
+                            if (editorEl) {
+                              setDomCache(currentFile, editorEl.innerHTML);
+                            }
+                          }
                         }}
                         onBlockChange={setBlockInfo}
                         preventAutoFocus={isMobile}
                       />
+                  )}
+                  {/* Show cached DOM preview while Muya initializes */}
+                  {domPreview && !editorReady && (
+                    <div className="absolute inset-0 z-20 overflow-auto bg-white">
+                      {/* Cached HTML preview - reuse Muya's CSS classes */}
+                      <div className="muya-editor-wrapper">
+                        <style>{`
+                          .dom-preview .mu-hide,
+                          .dom-preview .mu-remove {
+                            display: none !important;
+                          }
+                          .dom-preview .mu-content,
+                          .dom-preview .mu-atx-heading .mu-content,
+                          .dom-preview h1 .mu-content,
+                          .dom-preview h2 .mu-content,
+                          .dom-preview h3 .mu-content,
+                          .dom-preview h4 .mu-content,
+                          .dom-preview h5 .mu-content,
+                          .dom-preview h6 .mu-content {
+                            display: block !important;
+                            visibility: visible !important;
+                            opacity: 1 !important;
+                          }
+                          .dom-preview .mu-plain-text {
+                            display: inline !important;
+                            visibility: visible !important;
+                            opacity: 1 !important;
+                          }
+                        `}</style>
+                        <div
+                          className="mu-editor dom-preview opacity-60"
+                          dangerouslySetInnerHTML={{ __html: domPreview }}
+                        />
+                      </div>
+                      {/* Dimmed overlay with spinner - shifted up to align with full-screen spinner */}
+                      <div className="absolute inset-0 bg-white/40 flex items-center justify-center pb-24">
+                        <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

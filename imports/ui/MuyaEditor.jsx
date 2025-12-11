@@ -24,348 +24,355 @@ export const MuyaEditor = forwardRef(function MuyaEditor({ initialValue = '', on
     if (!containerRef.current || initializedRef.current) return;
     initializedRef.current = true;
 
-    // Create wrapper div (Muya replaces the container element)
-    const wrapperDiv = document.createElement('div');
-    containerRef.current.appendChild(wrapperDiv);
+    // Defer Muya init to let other UI (file browser) render first
+    // Muya.init() blocks main thread for several seconds on large documents
+    const timeoutId = setTimeout(() => {
+      if (!containerRef.current) return;
 
-    const muya = new Muya(wrapperDiv, {
-      markdown: initialValue || '',
-      hideQuickInsertHint: true, // Disable "Type / to insert..." placeholder
-    });
+      // Create wrapper div (Muya replaces the container element)
+      const wrapperDiv = document.createElement('div');
+      containerRef.current.appendChild(wrapperDiv);
 
-    muya.init();
-    muyaRef.current = muya;
-
-    // Prevent auto-focus on mobile to avoid keyboard popup
-    if (preventAutoFocus) {
-      requestAnimationFrame(() => {
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
+      const muya = new Muya(wrapperDiv, {
+        markdown: initialValue || '',
+        hideQuickInsertHint: true, // Disable "Type / to insert..." placeholder
       });
-    }
 
-    // Record initial history state
-    cleanUndoLengthRef.current = muya.editor.history._stack?.undo?.length || 0;
-    cleanRedoLengthRef.current = muya.editor.history._stack?.redo?.length || 0;
+      muya.init();
+      muyaRef.current = muya;
 
-    // Notify parent of initial dirty state (no serialization needed)
-    onDirtyChange?.(false);
-
-    // Signal that editor is ready after content has actually rendered
-    // For large documents, the browser needs multiple frames to paint all content
-    const waitForContent = () => {
-      // Check if content has been rendered by looking for paragraph elements
-      const editorEl = muya.domNode;
-      const hasContent = editorEl && (
-        // Either editor has visible text content
-        editorEl.textContent?.trim().length > 0 ||
-        // Or it has paragraph elements (even if empty - for empty documents)
-        editorEl.querySelector('.mu-paragraph')
-      );
-
-      if (hasContent) {
-        // Content exists, wait one more frame for paint to complete
+      // Prevent auto-focus on mobile to avoid keyboard popup
+      if (preventAutoFocus) {
         requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            onReady?.();
-          });
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
         });
-      } else {
-        // Content not yet rendered, check again next frame
-        requestAnimationFrame(waitForContent);
-      }
-    };
-
-    // Start checking after init completes
-    requestAnimationFrame(waitForContent);
-
-    // Helper to get current block info and notify parent
-    const notifyBlockChange = () => {
-      if (!onBlockChange || !muyaRef.current) return;
-
-      const selection = muya.editor.selection.getSelection();
-      const anchorBlock = selection?.anchorBlock;
-      const block = anchorBlock?.parent;
-
-      if (!block) {
-        onBlockChange({ headingLevel: null, listType: null });
-        return;
       }
 
-      // Determine heading level
-      let headingLevel = null;
-      if (block.blockName === 'paragraph') {
-        headingLevel = 0;
-      } else if (block.blockName === 'atx-heading') {
-        // Get heading level from meta or block properties
-        headingLevel = block.meta?.level || parseInt(block.children?.[0]?.text?.match(/^#{1,6}/)?.[0]?.length) || 1;
-      }
+      // Record initial history state
+      cleanUndoLengthRef.current = muya.editor.history._stack?.undo?.length || 0;
+      cleanRedoLengthRef.current = muya.editor.history._stack?.redo?.length || 0;
 
-      // Determine list type by checking parent hierarchy
-      let listType = null;
-      let current = block;
-      while (current) {
-        if (current.blockName === 'bullet-list') {
-          listType = 'bullet-list';
-          break;
-        } else if (current.blockName === 'order-list') {
-          listType = 'order-list';
-          break;
-        } else if (current.blockName === 'task-list') {
-          listType = 'task-list';
-          break;
-        }
-        current = current.parent;
-      }
+      // Notify parent of initial dirty state (no serialization needed)
+      onDirtyChange?.(false);
 
-      onBlockChange({ headingLevel, listType });
-    };
+      // Signal that editor is ready after content has actually rendered
+      // For large documents, the browser needs multiple frames to paint all content
+      const waitForContent = () => {
+        // Check if content has been rendered by looking for paragraph elements
+        const editorEl = muya.domNode;
+        const hasContent = editorEl && (
+          // Either editor has visible text content
+          editorEl.textContent?.trim().length > 0 ||
+          // Or it has paragraph elements (even if empty - for empty documents)
+          editorEl.querySelector('.mu-paragraph')
+        );
 
-    // Listen for selection changes
-    muya.on('selection-change', notifyBlockChange);
-
-    // Listen for content changes - O(1) dirty check using history stack lengths
-    // (no serialization needed - content is fetched on-demand via getContent())
-    muya.on('json-change', () => {
-      // Also notify of block change (block type may have changed)
-      notifyBlockChange();
-      if (!muyaRef.current) return;
-
-      // O(1) dirty check: compare history stack lengths
-      const undoLen = muya.editor.history._stack?.undo?.length || 0;
-      const redoLen = muya.editor.history._stack?.redo?.length || 0;
-      const isDirty = undoLen !== cleanUndoLengthRef.current || redoLen !== cleanRedoLengthRef.current;
-
-      if (isDirty !== lastDirtyRef.current) {
-        lastDirtyRef.current = isDirty;
-        onDirtyChange?.(isDirty);
-      }
-    });
-
-    // Handle undo/redo through both beforeinput AND keydown
-    // beforeinput is the standard way, but Playwright may only trigger keydown
-    const handleBeforeInput = (e) => {
-      if (!muyaRef.current) return;
-      if (!containerRef.current?.contains(e.target)) return;
-
-      if (e.inputType === 'historyUndo') {
-        e.preventDefault();
-        muyaRef.current.undo();
-      } else if (e.inputType === 'historyRedo') {
-        e.preventDefault();
-        muyaRef.current.redo();
-      }
-    };
-
-    // Handle keydown for Ctrl+Z and Ctrl+Y
-    const handleKeyDown = (e) => {
-      if (!muyaRef.current) return;
-
-      // Accept both Ctrl and Cmd for cross-platform support
-      const modKey = e.ctrlKey || e.metaKey;
-
-      // Typora-style heading shortcuts: Cmd+1-6 for headings, Cmd+0 for paragraph
-      if (modKey && !e.shiftKey && !e.altKey) {
-        const key = e.key;
-        let label = null;
-
-        if (key >= '1' && key <= '6') {
-          label = `atx-heading ${key}`;
-        } else if (key === '0') {
-          label = 'paragraph';
-        }
-
-        if (label) {
-          e.preventDefault();
-          e.stopPropagation();
-
-          // Get the current block
-          const muya = muyaRef.current;
-
-          // Flush any pending operations to ensure we get the latest content
-          // (operations are batched with requestAnimationFrame, so typing may not be reflected yet)
-          muya.editor.jsonState.flush?.();
-
-          const selection = muya.editor.selection.getSelection();
-          const anchorBlock = selection?.anchorBlock;
-          const block = anchorBlock?.parent;
-
-          if (block) {
-            // Preserve text content by stripping markdown prefixes
-            // Try to get text from the block's children first, fallback to DOM content
-            let rawText = block.children[0]?.text || '';
-
-            // If rawText is empty, try to get content from the DOM node
-            if (!rawText && anchorBlock?.domNode) {
-              rawText = anchorBlock.domNode.textContent || '';
-            }
-
-            const text = block.blockName === 'paragraph'
-              ? rawText
-              : rawText.replace(/^ {0,3}#{1,6}(?:\s+|$)/, '');
-
-            // Convert the block to the target type
-            replaceBlockByLabel({ block, muya, label, text });
-          }
-          return;
-        }
-      }
-
-      // Handle Ctrl+Z / Cmd+Z for undo, Ctrl+Shift+Z / Cmd+Shift+Z for redo
-      if (modKey && (e.key === 'z' || e.key === 'Z')) {
-        // Only skip if focus is on a different input element (not our editor)
-        const activeEl = document.activeElement;
-        const focusOnOtherInput = (activeEl?.tagName === 'INPUT' ||
-                                   activeEl?.tagName === 'TEXTAREA') &&
-                                  !containerRef.current?.contains(activeEl);
-
-        // Skip if focus is on another input/textarea
-        if (focusOnOtherInput) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.shiftKey) {
-          muyaRef.current.redo();
+        if (hasContent) {
+          // Content exists, wait one more frame for paint to complete
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              onReady?.();
+            });
+          });
         } else {
-          muyaRef.current.undo();
+          // Content not yet rendered, check again next frame
+          requestAnimationFrame(waitForContent);
         }
-        // Explicitly check dirty state after undo/redo
-        // (json-change fires but we want to ensure immediate dirty check)
-        setTimeout(() => {
-          const muya = muyaRef.current;
-          if (!muya) return;
-          const undoLen = muya.editor.history._stack?.undo?.length || 0;
-          const redoLen = muya.editor.history._stack?.redo?.length || 0;
-          const isDirty = undoLen !== cleanUndoLengthRef.current || redoLen !== cleanRedoLengthRef.current;
-          if (isDirty !== lastDirtyRef.current) {
-            lastDirtyRef.current = isDirty;
-            onDirtyChange?.(isDirty);
-          }
-        }, 0);
-      }
-      // Ctrl+Y for redo on Windows/Linux (also works on Mac via Ctrl)
-      if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-        const activeEl = document.activeElement;
-        const focusOnOtherInput = (activeEl?.tagName === 'INPUT' ||
-                                   activeEl?.tagName === 'TEXTAREA') &&
-                                  !containerRef.current?.contains(activeEl);
+      };
 
-        if (focusOnOtherInput) return;
+      // Start checking after init completes
+      requestAnimationFrame(waitForContent);
 
-        e.preventDefault();
-        e.stopPropagation();
-        muyaRef.current.redo();
-        // Explicitly check dirty state after redo
-        setTimeout(() => {
-          const muya = muyaRef.current;
-          if (!muya) return;
-          const undoLen = muya.editor.history._stack?.undo?.length || 0;
-          const redoLen = muya.editor.history._stack?.redo?.length || 0;
-          const isDirty = undoLen !== cleanUndoLengthRef.current || redoLen !== cleanRedoLengthRef.current;
-          if (isDirty !== lastDirtyRef.current) {
-            lastDirtyRef.current = isDirty;
-            onDirtyChange?.(isDirty);
-          }
-        }, 0);
-      }
-
-      // Handle Backspace/Delete in list items (issue #34)
-      // When clicking directly on nested list items, Muya may not properly handle backspace
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        const muya = muyaRef.current;
-        if (!muya) return;
-
-        // Only handle if focus is inside the editor container
-        if (!containerRef.current?.contains(e.target)) return;
-
-        // Get the current selection
-        const sel = window.getSelection();
-        if (!sel.rangeCount) return;
-
-        const range = sel.getRangeAt(0);
-        const container = range.startContainer;
-
-        // Check if we're in a list item
-        const listItem = container.nodeType === Node.TEXT_NODE
-          ? container.parentElement?.closest('li.mu-list-item')
-          : container.closest?.('li.mu-list-item');
-
-        if (listItem) {
-          // For backspace, delete the character before cursor
-          if (e.key === 'Backspace' && range.collapsed && range.startOffset > 0) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            // Use execCommand for reliable deletion in contenteditable
-            document.execCommand('delete', false, null);
-            return;
-          }
-          // For delete key, delete the character after cursor
-          if (e.key === 'Delete' && range.collapsed) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            document.execCommand('forwardDelete', false, null);
-            return;
-          }
-        }
-      }
-
-      // Handle Tab key - prevent browser's default focus navigation (issue #34)
-      // Muya handles the actual Tab behavior (indent/insertTab) internally
-      if (e.key === 'Tab') {
-        if (!containerRef.current?.contains(e.target)) return;
-        // Prevent browser's default Tab navigation
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Muya's tabHandler is called via its own event listener, but we need to
-        // ensure it runs. Since we're stopping propagation, manually trigger it.
-        const muya = muyaRef.current;
-        if (muya) {
-          const selection = muya.editor.selection.getSelection();
-          const anchorBlock = selection?.anchorBlock;
-          if (anchorBlock && typeof anchorBlock.tabHandler === 'function') {
-            anchorBlock.tabHandler(e);
-            // Ensure focus stays in editor after Tab operation
-            setTimeout(() => {
-              containerRef.current?.querySelector('.mu-editor')?.focus();
-            }, 0);
-          }
-        }
-      }
-
-      // Handle End/Home keys for mobile compatibility (issue #26)
-      // Mobile browsers don't always handle these keys correctly in contentEditable
-      if (e.key === 'End' || e.key === 'Home') {
-        const muya = muyaRef.current;
-        if (!muya) return;
+      // Helper to get current block info and notify parent
+      const notifyBlockChange = () => {
+        if (!onBlockChange || !muyaRef.current) return;
 
         const selection = muya.editor.selection.getSelection();
         const anchorBlock = selection?.anchorBlock;
-        if (!anchorBlock) return;
+        const block = anchorBlock?.parent;
 
-        e.preventDefault();
-        e.stopPropagation();
-
-        const textLength = anchorBlock.text?.length || 0;
-        if (e.key === 'End') {
-          // Move cursor to end of current content block
-          anchorBlock.setCursor(textLength, textLength, true);
-        } else {
-          // Move cursor to start of current content block
-          anchorBlock.setCursor(0, 0, true);
+        if (!block) {
+          onBlockChange({ headingLevel: null, listType: null });
+          return;
         }
-      }
-    };
 
-    keyDownHandlerRef.current = { handleBeforeInput, handleKeyDown };
-    document.addEventListener('beforeinput', handleBeforeInput, true);
-    document.addEventListener('keydown', handleKeyDown, true);
+        // Determine heading level
+        let headingLevel = null;
+        if (block.blockName === 'paragraph') {
+          headingLevel = 0;
+        } else if (block.blockName === 'atx-heading') {
+          // Get heading level from meta or block properties
+          headingLevel = block.meta?.level || parseInt(block.children?.[0]?.text?.match(/^#{1,6}/)?.[0]?.length) || 1;
+        }
+
+        // Determine list type by checking parent hierarchy
+        let listType = null;
+        let current = block;
+        while (current) {
+          if (current.blockName === 'bullet-list') {
+            listType = 'bullet-list';
+            break;
+          } else if (current.blockName === 'order-list') {
+            listType = 'order-list';
+            break;
+          } else if (current.blockName === 'task-list') {
+            listType = 'task-list';
+            break;
+          }
+          current = current.parent;
+        }
+
+        onBlockChange({ headingLevel, listType });
+      };
+
+      // Listen for selection changes
+      muya.on('selection-change', notifyBlockChange);
+
+      // Listen for content changes - O(1) dirty check using history stack lengths
+      // (no serialization needed - content is fetched on-demand via getContent())
+      muya.on('json-change', () => {
+        // Also notify of block change (block type may have changed)
+        notifyBlockChange();
+        if (!muyaRef.current) return;
+
+        // O(1) dirty check: compare history stack lengths
+        const undoLen = muya.editor.history._stack?.undo?.length || 0;
+        const redoLen = muya.editor.history._stack?.redo?.length || 0;
+        const isDirty = undoLen !== cleanUndoLengthRef.current || redoLen !== cleanRedoLengthRef.current;
+
+        if (isDirty !== lastDirtyRef.current) {
+          lastDirtyRef.current = isDirty;
+          onDirtyChange?.(isDirty);
+        }
+      });
+
+      // Handle undo/redo through both beforeinput AND keydown
+      // beforeinput is the standard way, but Playwright may only trigger keydown
+      const handleBeforeInput = (e) => {
+        if (!muyaRef.current) return;
+        if (!containerRef.current?.contains(e.target)) return;
+
+        if (e.inputType === 'historyUndo') {
+          e.preventDefault();
+          muyaRef.current.undo();
+        } else if (e.inputType === 'historyRedo') {
+          e.preventDefault();
+          muyaRef.current.redo();
+        }
+      };
+
+      // Handle keydown for Ctrl+Z and Ctrl+Y
+      const handleKeyDown = (e) => {
+        if (!muyaRef.current) return;
+
+        // Accept both Ctrl and Cmd for cross-platform support
+        const modKey = e.ctrlKey || e.metaKey;
+
+        // Typora-style heading shortcuts: Cmd+1-6 for headings, Cmd+0 for paragraph
+        if (modKey && !e.shiftKey && !e.altKey) {
+          const key = e.key;
+          let label = null;
+
+          if (key >= '1' && key <= '6') {
+            label = `atx-heading ${key}`;
+          } else if (key === '0') {
+            label = 'paragraph';
+          }
+
+          if (label) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Get the current block
+            const muya = muyaRef.current;
+
+            // Flush any pending operations to ensure we get the latest content
+            // (operations are batched with requestAnimationFrame, so typing may not be reflected yet)
+            muya.editor.jsonState.flush?.();
+
+            const selection = muya.editor.selection.getSelection();
+            const anchorBlock = selection?.anchorBlock;
+            const block = anchorBlock?.parent;
+
+            if (block) {
+              // Preserve text content by stripping markdown prefixes
+              // Try to get text from the block's children first, fallback to DOM content
+              let rawText = block.children[0]?.text || '';
+
+              // If rawText is empty, try to get content from the DOM node
+              if (!rawText && anchorBlock?.domNode) {
+                rawText = anchorBlock.domNode.textContent || '';
+              }
+
+              const text = block.blockName === 'paragraph'
+                ? rawText
+                : rawText.replace(/^ {0,3}#{1,6}(?:\s+|$)/, '');
+
+              // Convert the block to the target type
+              replaceBlockByLabel({ block, muya, label, text });
+            }
+            return;
+          }
+        }
+
+        // Handle Ctrl+Z / Cmd+Z for undo, Ctrl+Shift+Z / Cmd+Shift+Z for redo
+        if (modKey && (e.key === 'z' || e.key === 'Z')) {
+          // Only skip if focus is on a different input element (not our editor)
+          const activeEl = document.activeElement;
+          const focusOnOtherInput = (activeEl?.tagName === 'INPUT' ||
+                                     activeEl?.tagName === 'TEXTAREA') &&
+                                    !containerRef.current?.contains(activeEl);
+
+          // Skip if focus is on another input/textarea
+          if (focusOnOtherInput) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.shiftKey) {
+            muyaRef.current.redo();
+          } else {
+            muyaRef.current.undo();
+          }
+          // Explicitly check dirty state after undo/redo
+          // (json-change fires but we want to ensure immediate dirty check)
+          setTimeout(() => {
+            const muya = muyaRef.current;
+            if (!muya) return;
+            const undoLen = muya.editor.history._stack?.undo?.length || 0;
+            const redoLen = muya.editor.history._stack?.redo?.length || 0;
+            const isDirty = undoLen !== cleanUndoLengthRef.current || redoLen !== cleanRedoLengthRef.current;
+            if (isDirty !== lastDirtyRef.current) {
+              lastDirtyRef.current = isDirty;
+              onDirtyChange?.(isDirty);
+            }
+          }, 0);
+        }
+        // Ctrl+Y for redo on Windows/Linux (also works on Mac via Ctrl)
+        if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+          const activeEl = document.activeElement;
+          const focusOnOtherInput = (activeEl?.tagName === 'INPUT' ||
+                                     activeEl?.tagName === 'TEXTAREA') &&
+                                    !containerRef.current?.contains(activeEl);
+
+          if (focusOnOtherInput) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+          muyaRef.current.redo();
+          // Explicitly check dirty state after redo
+          setTimeout(() => {
+            const muya = muyaRef.current;
+            if (!muya) return;
+            const undoLen = muya.editor.history._stack?.undo?.length || 0;
+            const redoLen = muya.editor.history._stack?.redo?.length || 0;
+            const isDirty = undoLen !== cleanUndoLengthRef.current || redoLen !== cleanRedoLengthRef.current;
+            if (isDirty !== lastDirtyRef.current) {
+              lastDirtyRef.current = isDirty;
+              onDirtyChange?.(isDirty);
+            }
+          }, 0);
+        }
+
+        // Handle Backspace/Delete in list items (issue #34)
+        // When clicking directly on nested list items, Muya may not properly handle backspace
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          const muya = muyaRef.current;
+          if (!muya) return;
+
+          // Only handle if focus is inside the editor container
+          if (!containerRef.current?.contains(e.target)) return;
+
+          // Get the current selection
+          const sel = window.getSelection();
+          if (!sel.rangeCount) return;
+
+          const range = sel.getRangeAt(0);
+          const container = range.startContainer;
+
+          // Check if we're in a list item
+          const listItem = container.nodeType === Node.TEXT_NODE
+            ? container.parentElement?.closest('li.mu-list-item')
+            : container.closest?.('li.mu-list-item');
+
+          if (listItem) {
+            // For backspace, delete the character before cursor
+            if (e.key === 'Backspace' && range.collapsed && range.startOffset > 0) {
+              e.preventDefault();
+              e.stopPropagation();
+
+              // Use execCommand for reliable deletion in contenteditable
+              document.execCommand('delete', false, null);
+              return;
+            }
+            // For delete key, delete the character after cursor
+            if (e.key === 'Delete' && range.collapsed) {
+              e.preventDefault();
+              e.stopPropagation();
+
+              document.execCommand('forwardDelete', false, null);
+              return;
+            }
+          }
+        }
+
+        // Handle Tab key - prevent browser's default focus navigation (issue #34)
+        // Muya handles the actual Tab behavior (indent/insertTab) internally
+        if (e.key === 'Tab') {
+          if (!containerRef.current?.contains(e.target)) return;
+          // Prevent browser's default Tab navigation
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Muya's tabHandler is called via its own event listener, but we need to
+          // ensure it runs. Since we're stopping propagation, manually trigger it.
+          const muya = muyaRef.current;
+          if (muya) {
+            const selection = muya.editor.selection.getSelection();
+            const anchorBlock = selection?.anchorBlock;
+            if (anchorBlock && typeof anchorBlock.tabHandler === 'function') {
+              anchorBlock.tabHandler(e);
+              // Ensure focus stays in editor after Tab operation
+              setTimeout(() => {
+                containerRef.current?.querySelector('.mu-editor')?.focus();
+              }, 0);
+            }
+          }
+        }
+
+        // Handle End/Home keys for mobile compatibility (issue #26)
+        // Mobile browsers don't always handle these keys correctly in contentEditable
+        if (e.key === 'End' || e.key === 'Home') {
+          const muya = muyaRef.current;
+          if (!muya) return;
+
+          const selection = muya.editor.selection.getSelection();
+          const anchorBlock = selection?.anchorBlock;
+          if (!anchorBlock) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          const textLength = anchorBlock.text?.length || 0;
+          if (e.key === 'End') {
+            // Move cursor to end of current content block
+            anchorBlock.setCursor(textLength, textLength, true);
+          } else {
+            // Move cursor to start of current content block
+            anchorBlock.setCursor(0, 0, true);
+          }
+        }
+      };
+
+      keyDownHandlerRef.current = { handleBeforeInput, handleKeyDown };
+      document.addEventListener('beforeinput', handleBeforeInput, true);
+      document.addEventListener('keydown', handleKeyDown, true);
+    }, 100); // Delay to let file browser render before Muya blocks main thread
 
     return () => {
-      if (muya) {
-        muya.destroy();
+      clearTimeout(timeoutId);
+      if (muyaRef.current) {
+        muyaRef.current.destroy();
       }
       if (keyDownHandlerRef.current) {
         document.removeEventListener('beforeinput', keyDownHandlerRef.current.handleBeforeInput, true);
