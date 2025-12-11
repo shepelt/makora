@@ -8,6 +8,7 @@ import { SplitPanel, useIsMobile } from './SplitPanel';
 import { Login } from './Login';
 import { Settings } from './Settings';
 import { EditorToolbar } from './EditorToolbar';
+import { PullToRefresh } from './PullToRefresh';
 import { FileItems } from '../api/collections';
 
 // File content cache helpers
@@ -409,6 +410,11 @@ function EditorPage() {
     setSelectedFile({ filename: filePath, basename });
     setFileDir(dir);
 
+    // Reset editorReady so DOM preview shows during reload
+    if (forceReload) {
+      setEditorReady(false);
+    }
+
     // Check for cached content first (skip if forcing reload)
     const cached = forceReload ? null : getFileCache(filePath);
     let usedCache = false;
@@ -739,19 +745,24 @@ function EditorPage() {
                 />
 
                 {/* Editor area */}
-                <div className="flex-1 overflow-auto relative">
+                <PullToRefresh
+                  disabled={loading || !currentFile}
+                  onRefresh={() => {
+                    if (currentFile) {
+                      // Trigger reload - shows DOM preview with spinner
+                      setReloading(true);
+                      loadedFileRef.current = currentFile;
+                      loadFile(currentFile, true);
+                    }
+                  }}
+                >
+                <div className="flex-1 overflow-auto relative h-full">
                   {/* Loading overlay with spinner */}
                   <div
                     className={`fixed inset-0 bg-white z-50 flex items-center justify-center transition-opacity duration-150 ${loading && !reloading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                   >
                     <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
                   </div>
-                  {/* Inline spinner for reloading (already in editor) */}
-                  {loading && reloading && (
-                    <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center">
-                      <div className="w-6 h-6 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-                    </div>
-                  )}
                   {/* Only render editor once we have content (editorKey > 0) */}
                   {editorKey > 0 && (
                     <MuyaEditor
@@ -818,6 +829,7 @@ function EditorPage() {
                     </div>
                   )}
                 </div>
+                </PullToRefresh>
               </div>
 
               {/* Welcome screen - shown when no file selected */}
