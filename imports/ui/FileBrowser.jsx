@@ -393,6 +393,8 @@ function saveExpandedPaths(paths) {
 export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onFileDelete, loadingFilePath }) {
   const [expandedPaths, setExpandedPaths] = useState(() => loadExpandedPaths());
   const [loading, setLoading] = useState(true);
+  // Track if we've ever completed loading (used to show/hide header)
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [error, setError] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [sortOrder, setSortOrder] = useState(() => {
@@ -502,6 +504,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
     } finally {
       if (isRoot && !isBackground) {
         setLoading(false);
+        setInitialLoadComplete(true);
       }
     }
   }, [normalizedBasePath]);
@@ -511,6 +514,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
     // Clear collection and expanded paths when basePath changes
     FileItems.remove({});
     setExpandedPaths(new Map());
+    setInitialLoadComplete(false);
 
     // Load from cache first for instant UI
     const cached = loadCache();
@@ -796,7 +800,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
       {/* Header */}
       <div className="p-2 border-b bg-white flex items-center gap-2">
         <span className="text-sm font-medium text-gray-700 flex-1 flex items-center gap-1">
-          {!loading && (
+          {initialLoadComplete && (
             <>
               <FolderIcon className="w-4 h-4 text-gray-500" />
               <span className="truncate">{normalizedBasePath === '/' ? 'Root' : normalizedBasePath.split('/').pop()}</span>
