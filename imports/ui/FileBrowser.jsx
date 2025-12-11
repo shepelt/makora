@@ -796,8 +796,12 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
       {/* Header */}
       <div className="p-2 border-b bg-white flex items-center gap-2">
         <span className="text-sm font-medium text-gray-700 flex-1 flex items-center gap-1">
-          <FolderIcon className="w-4 h-4 text-gray-500" />
-          <span className="truncate">{normalizedBasePath === '/' ? 'Root' : normalizedBasePath.split('/').pop()}</span>
+          {!loading && (
+            <>
+              <FolderIcon className="w-4 h-4 text-gray-500" />
+              <span className="truncate">{normalizedBasePath === '/' ? 'Root' : normalizedBasePath.split('/').pop()}</span>
+            </>
+          )}
         </span>
         <button
           onClick={handleNewFileInRoot}
