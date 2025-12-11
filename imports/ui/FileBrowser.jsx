@@ -393,6 +393,7 @@ function saveExpandedPaths(paths) {
 export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onFileDelete, loadingFilePath }) {
   const [expandedPaths, setExpandedPaths] = useState(() => loadExpandedPaths());
   const [loading, setLoading] = useState(true);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [error, setError] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [sortOrder, setSortOrder] = useState(() => {
@@ -502,6 +503,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
     } finally {
       if (isRoot && !isBackground) {
         setLoading(false);
+        setInitialLoadComplete(true);
       }
     }
   }, [normalizedBasePath]);
@@ -511,6 +513,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
     // Clear collection and expanded paths when basePath changes
     FileItems.remove({});
     setExpandedPaths(new Map());
+    setInitialLoadComplete(false);
 
     // Load from cache first for instant UI
     const cached = loadCache();
@@ -831,7 +834,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
         {error && (
           <div className="p-4 text-center text-red-500">{error}</div>
         )}
-        {!loading && !error && rootItems.length === 0 && (
+        {!loading && !error && initialLoadComplete && rootItems.length === 0 && (
           <div className="p-4 text-center text-gray-500">Empty</div>
         )}
         {!loading && !error && treeItems.map((item) => (
