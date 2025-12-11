@@ -302,16 +302,13 @@ function EditorPage() {
 
     if (cached?.content) {
       console.log('Using cached content for:', filePath);
-      // Show cached content
+      // Show cached content immediately while we fetch fresh data
       pendingContentRef.current = transformContent(cached.content, dir);
       setEditorKey(k => k + 1);
       usedCache = true;
-    } else if (!forceReload) {
-      // No cache and not a reload - clear old editor content
-      pendingContentRef.current = '';
-      setEditorKey(k => k + 1);
     }
-    // For forceReload without cache, don't remount until we have new content
+    // If no cache: don't mount editor yet - wait for server response
+    // This prevents showing empty editor with blinking cursor
 
     try {
       // Fetch from server (with conditional headers if we have cache metadata)
@@ -597,9 +594,14 @@ function EditorPage() {
 
                 {/* Editor area */}
                 <div className="flex-1 overflow-auto relative">
-                  {/* Hide old content while loading new file */}
+                  {/* Loading overlay with spinner - shown when loading without cached content */}
                   {loading && (
-                    <div className="absolute inset-0 bg-white z-10" />
+                    <div className="absolute inset-0 bg-white z-10 flex items-center justify-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+                        <span className="text-sm text-gray-500">Loading...</span>
+                      </div>
+                    </div>
                   )}
                   {/* Only render editor once we have content (editorKey > 0) */}
                   {editorKey > 0 && (
