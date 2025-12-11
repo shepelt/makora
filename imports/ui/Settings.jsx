@@ -41,28 +41,7 @@ export function Settings({ onSaved, isModal = false }) {
     loadSettings();
   }, []);
 
-  // Save rememberLastFile to localStorage when it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(REMEMBER_LAST_FILE_KEY, rememberLastFile ? 'true' : 'false');
-    } catch {
-      // localStorage might be disabled
-    }
-  }, [rememberLastFile]);
 
-  // Save enableDebugger to localStorage and reload to apply
-  useEffect(() => {
-    try {
-      const current = localStorage.getItem(ENABLE_DEBUGGER_KEY) === 'true';
-      if (current !== enableDebugger) {
-        localStorage.setItem(ENABLE_DEBUGGER_KEY, enableDebugger ? 'true' : 'false');
-        // Reload to apply debugger change
-        window.location.reload();
-      }
-    } catch {
-      // localStorage might be disabled
-    }
-  }, [enableDebugger]);
 
   const loadSettings = async () => {
     try {
@@ -137,6 +116,30 @@ export function Settings({ onSaved, isModal = false }) {
 
     try {
       await Meteor.callAsync('settings.saveWebdav', { url, username, password, basePath });
+
+      // Save preferences to localStorage
+      localStorage.setItem(REMEMBER_LAST_FILE_KEY, rememberLastFile ? 'true' : 'false');
+
+      // Save debugger setting to localStorage and apply immediately
+      const currentDebugger = localStorage.getItem(ENABLE_DEBUGGER_KEY) === 'true';
+      if (currentDebugger !== enableDebugger) {
+        localStorage.setItem(ENABLE_DEBUGGER_KEY, enableDebugger ? 'true' : 'false');
+        if (enableDebugger) {
+          // Load and init eruda
+          if (!window.eruda) {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+            script.onload = () => window.eruda?.init();
+            document.body.appendChild(script);
+          } else {
+            window.eruda.init();
+          }
+        } else {
+          // Destroy eruda
+          window.eruda?.destroy();
+        }
+      }
+
       if (onSaved) {
         onSaved();
       }
@@ -198,7 +201,7 @@ export function Settings({ onSaved, isModal = false }) {
         )}
 
         {/* WebDAV Configuration Section */}
-        <form onSubmit={handleSave} className="space-y-4">
+        <form id="webdav-form" onSubmit={handleSave} className="space-y-4">
           <h3 className="text-xs font-medium text-warm-gray uppercase tracking-wider">WebDAV Connection</h3>
 
           <div>
@@ -354,14 +357,6 @@ export function Settings({ onSaved, isModal = false }) {
             </div>
           )}
 
-          {/* Save Button */}
-          <button
-            type="submit"
-            disabled={saving || !url || !username || (!password && !hasPassword)}
-            className="w-full px-4 py-3 text-sm font-medium text-white bg-terracotta rounded-xl hover:bg-terracotta-dark disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving...' : 'Save & Continue'}
-          </button>
         </form>
 
         {/* Preferences Section */}
@@ -379,9 +374,19 @@ export function Settings({ onSaved, isModal = false }) {
             checked={enableDebugger}
             onChange={setEnableDebugger}
             label="Enable debugger"
-            description="Show developer console (reloads page)"
+            description="Show developer console for troubleshooting"
           />
         </div>
+
+        {/* Save Button */}
+        <button
+          type="submit"
+          form="webdav-form"
+          disabled={saving || !url || !username || (!password && !hasPassword)}
+          className="w-full px-4 py-3 text-sm font-medium text-white bg-terracotta rounded-xl hover:bg-terracotta-dark disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {saving ? 'Saving...' : 'Save & Continue'}
+        </button>
       </div>
 
       {/* Footer */}

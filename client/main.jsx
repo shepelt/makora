@@ -4,10 +4,9 @@ import { Meteor } from 'meteor/meteor';
 import { App } from '/imports/ui/App';
 
 // Load mobile console (eruda) for debugging
-// Enable via: settings, localStorage toggle, or ?debug URL parameter
+// Enable via: localStorage toggle or ?debug URL parameter
 const urlParams = new URLSearchParams(window.location.search);
 const debuggerEnabled =
-  Meteor.settings?.public?.enableMobileConsole ||
   urlParams.has('debug') ||
   localStorage.getItem('makora:enableDebugger') === 'true';
 
