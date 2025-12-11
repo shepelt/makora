@@ -17,6 +17,7 @@ export function Settings({ onSaved, isModal = false }) {
   const [browsingPath, setBrowsingPath] = useState('/');
   const [directories, setDirectories] = useState([]);
   const [loadingDirs, setLoadingDirs] = useState(false);
+  const [rememberLastFile, setRememberLastFile] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -30,6 +31,7 @@ export function Settings({ onSaved, isModal = false }) {
         setUsername(settings.username || '');
         setBasePath(settings.basePath || '/');
         setHasPassword(settings.hasPassword || false);
+        setRememberLastFile(settings.rememberLastFile || false);
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -94,7 +96,7 @@ export function Settings({ onSaved, isModal = false }) {
     setSaving(true);
 
     try {
-      await Meteor.callAsync('settings.saveWebdav', { url, username, password, basePath });
+      await Meteor.callAsync('settings.saveWebdav', { url, username, password, basePath, rememberLastFile });
       if (onSaved) {
         onSaved();
       }
@@ -274,6 +276,25 @@ export function Settings({ onSaved, isModal = false }) {
               </div>
             </div>
           )}
+
+          {/* Remember last file toggle */}
+          <div className="flex items-center justify-between py-3 border-t border-cream">
+            <div>
+              <label className="text-sm font-medium text-charcoal">Remember last file</label>
+              <p className="text-xs text-warm-gray/70 mt-0.5">Open the last viewed file on startup</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={rememberLastFile}
+              onClick={() => setRememberLastFile(!rememberLastFile)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${rememberLastFile ? 'bg-terracotta' : 'bg-gray-300'}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rememberLastFile ? 'translate-x-6' : 'translate-x-1'}`}
+              />
+            </button>
+          </div>
 
           {/* Buttons */}
           <div className="flex gap-3 pt-3">

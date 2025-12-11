@@ -13,6 +13,27 @@ import { FileItems } from '../api/collections';
 // File content cache helpers
 const FILE_CACHE_KEY = 'fileContentCache';
 const FILE_CACHE_VERSION = 1;
+const LAST_FILE_KEY = 'lastOpenedFile';
+
+function getLastFile() {
+  try {
+    return localStorage.getItem(LAST_FILE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setLastFile(path) {
+  try {
+    if (path) {
+      localStorage.setItem(LAST_FILE_KEY, path);
+    } else {
+      localStorage.removeItem(LAST_FILE_KEY);
+    }
+  } catch {
+    // localStorage might be disabled
+  }
+}
 
 function getFileCache(path) {
   try {
@@ -92,7 +113,7 @@ function UserMenu({ onOpenSettings }) {
             onClick={() => { setOpen(false); onOpenSettings?.(); }}
             className="w-full px-3 py-2 text-left text-sm text-charcoal hover:bg-cream/50"
           >
-            WebDAV Settings
+            Settings
           </button>
           <button
             onClick={() => { setOpen(false); Meteor.logout(); }}
@@ -183,26 +204,48 @@ function EditorPage() {
   // Track if basePath has been resolved from settings
   const [basePathReady, setBasePathReady] = useState(!!searchParams.get('path'));
 
-  // Load saved basePath into URL on mount (if no path param already)
+  // Load saved basePath and optionally last file on mount
   useEffect(() => {
-    if (searchParams.get('path')) return; // Already have a path
-    const loadBasePath = async () => {
+    const hasPath = searchParams.get('path');
+    const hasFile = searchParams.get('file');
+
+    // If we already have both path and file, we're done
+    if (hasPath && hasFile) {
+      setBasePathReady(true);
+      return;
+    }
+
+    const loadSettings = async () => {
       try {
         const settings = await Meteor.callAsync('settings.getWebdav');
-        if (settings?.basePath && settings.basePath !== '/') {
-          setSearchParams(prev => {
-            const next = new URLSearchParams(prev);
-            next.set('path', settings.basePath);
-            return next;
-          });
+        const updates = new URLSearchParams(searchParams);
+        let needsUpdate = false;
+
+        // Set basePath if not already set
+        if (!hasPath && settings?.basePath && settings.basePath !== '/') {
+          updates.set('path', settings.basePath);
+          needsUpdate = true;
+        }
+
+        // Restore last file if enabled and no file currently open
+        if (!hasFile && settings?.rememberLastFile) {
+          const lastFile = getLastFile();
+          if (lastFile) {
+            updates.set('file', lastFile);
+            needsUpdate = true;
+          }
+        }
+
+        if (needsUpdate) {
+          setSearchParams(updates);
         }
       } catch (err) {
-        console.error('Failed to load basePath:', err);
+        console.error('Failed to load settings:', err);
       } finally {
         setBasePathReady(true);
       }
     };
-    loadBasePath();
+    loadSettings();
   }, []);
 
 
@@ -498,6 +541,8 @@ function EditorPage() {
     // Set loading immediately so spinner shows in file browser
     setLoading(true);
     setLoadingFilePath(file.filename);
+    // Save as last opened file for "remember last file" feature
+    setLastFile(file.filename);
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       next.set('file', file.filename);

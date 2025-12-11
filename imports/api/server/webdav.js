@@ -249,11 +249,12 @@ Meteor.methods({
       username: userSettings.webdav.username,
       basePath: userSettings.webdav.basePath || '/',
       hasPassword: !!userSettings.webdav.password,
+      rememberLastFile: userSettings.webdav.rememberLastFile || false,
     };
   },
 
   // Save user's WebDAV settings
-  async 'settings.saveWebdav'({ url, username, password, basePath = '/' }) {
+  async 'settings.saveWebdav'({ url, username, password, basePath = '/', rememberLastFile = false }) {
     const authDisabled = Meteor.settings?.public?.disableAuth === true;
     const userId = authDisabled ? 'test-user-id' : Meteor.userId();
 
@@ -288,7 +289,7 @@ Meteor.methods({
       {
         $set: {
           userId,
-          webdav: { url, username, password: savePassword, basePath },
+          webdav: { url, username, password: savePassword, basePath, rememberLastFile },
           updatedAt: new Date(),
         },
         $setOnInsert: {
