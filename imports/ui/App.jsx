@@ -16,12 +16,21 @@ const FILE_CACHE_KEY = 'fileContentCache';
 const FILE_CACHE_VERSION = 1;
 const LAST_FILE_KEY = 'lastOpenedFile';
 const DOM_CACHE_PREFIX = 'domCache:';
+const REMEMBER_LAST_FILE_KEY = 'makora:rememberLastFile';
 
 function getLastFile() {
   try {
     return localStorage.getItem(LAST_FILE_KEY);
   } catch {
     return null;
+  }
+}
+
+function getRememberLastFile() {
+  try {
+    return localStorage.getItem(REMEMBER_LAST_FILE_KEY) === 'true';
+  } catch {
+    return false;
   }
 }
 
@@ -246,48 +255,50 @@ function EditorPage() {
       return;
     }
 
-    // Load settings from server first, then restore last file only if enabled
+    // Check localStorage for rememberLastFile (no server call needed)
+    const rememberLastFile = getRememberLastFile();
+    const lastFile = getLastFile();
+    console.log('[Mount] rememberLastFile:', rememberLastFile, 'lastFile:', lastFile);
+
+    // Restore last file immediately if enabled (from localStorage)
+    if (!hasFile && rememberLastFile && lastFile) {
+      const updates = new URLSearchParams(searchParams);
+      updates.set('file', lastFile);
+      // Also set path from localStorage cache if available
+      const cachedBasePath = localStorage.getItem('makora:basePath');
+      if (!hasPath && cachedBasePath) {
+        updates.set('path', cachedBasePath);
+      }
+      console.log('[Mount] Restoring last file:', lastFile);
+      setSearchParams(updates);
+      setBasePathReady(true);
+    } else {
+      // No file to restore - stop loading
+      setLoading(false);
+    }
+
+    // Load settings from server (for basePath only - rememberLastFile is now localStorage)
     const loadSettings = async () => {
       try {
         const settings = await Meteor.callAsync('settings.getWebdav');
-        console.log('[Mount] settings loaded, rememberLastFile:', settings?.rememberLastFile);
-
-        // Re-read current params (they may have changed since effect started)
-        const currentParams = new URLSearchParams(window.location.search);
-        const currentHasFile = currentParams.get('file');
-        const currentHasPath = currentParams.get('path');
-
-        const updates = new URLSearchParams(currentParams);
-        let needsUpdate = false;
 
         // Cache basePath for next cold start
         if (settings?.basePath) {
           localStorage.setItem('makora:basePath', settings.basePath);
         }
 
+        // Re-read current params
+        const currentParams = new URLSearchParams(window.location.search);
+        const currentHasPath = currentParams.get('path');
+
         // Set basePath if not already set
         if (!currentHasPath && settings?.basePath && settings.basePath !== '/') {
+          const updates = new URLSearchParams(currentParams);
           updates.set('path', settings.basePath);
-          needsUpdate = true;
-        }
-
-        // Restore last file only if rememberLastFile is enabled AND no file in URL
-        const lastFile = getLastFile();
-        if (!currentHasFile && settings?.rememberLastFile && lastFile) {
-          console.log('[Mount] Restoring last file:', lastFile);
-          updates.set('file', lastFile);
-          needsUpdate = true;
-        } else {
-          // No file to restore
-          setLoading(false);
-        }
-
-        if (needsUpdate) {
           setSearchParams(updates);
         }
       } catch (err) {
         console.error('Failed to load settings:', err);
-        setLoading(false);
       } finally {
         setBasePathReady(true);
       }

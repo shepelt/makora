@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Meteor } from 'meteor/meteor';
 
+const REMEMBER_LAST_FILE_KEY = 'makora:rememberLastFile';
+
 export function Settings({ onSaved, isModal = false }) {
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('');
@@ -17,11 +19,27 @@ export function Settings({ onSaved, isModal = false }) {
   const [browsingPath, setBrowsingPath] = useState('/');
   const [directories, setDirectories] = useState([]);
   const [loadingDirs, setLoadingDirs] = useState(false);
-  const [rememberLastFile, setRememberLastFile] = useState(false);
+  // Remember last file is stored in localStorage (device-specific preference)
+  const [rememberLastFile, setRememberLastFile] = useState(() => {
+    try {
+      return localStorage.getItem(REMEMBER_LAST_FILE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Save rememberLastFile to localStorage when it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(REMEMBER_LAST_FILE_KEY, rememberLastFile ? 'true' : 'false');
+    } catch {
+      // localStorage might be disabled
+    }
+  }, [rememberLastFile]);
 
   const loadSettings = async () => {
     try {
@@ -31,7 +49,6 @@ export function Settings({ onSaved, isModal = false }) {
         setUsername(settings.username || '');
         setBasePath(settings.basePath || '/');
         setHasPassword(settings.hasPassword || false);
-        setRememberLastFile(settings.rememberLastFile || false);
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -96,7 +113,7 @@ export function Settings({ onSaved, isModal = false }) {
     setSaving(true);
 
     try {
-      await Meteor.callAsync('settings.saveWebdav', { url, username, password, basePath, rememberLastFile });
+      await Meteor.callAsync('settings.saveWebdav', { url, username, password, basePath });
       if (onSaved) {
         onSaved();
       }
