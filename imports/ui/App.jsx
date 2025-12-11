@@ -239,31 +239,14 @@ function EditorPage() {
     const hasFile = searchParams.get('file');
     console.log('[Mount] hasPath:', hasPath, 'hasFile:', hasFile, 'URL:', window.location.href);
 
-    // If we already have both path and file, we're done
+    // If we already have both path and file in URL, we're done
     if (hasPath && hasFile) {
       console.log('[Mount] Already have path and file');
       setBasePathReady(true);
       return;
     }
 
-    // Optimistically restore last file from localStorage immediately (no server call needed)
-    // This allows cached content to render while we verify settings in background
-    const lastFile = getLastFile();
-    console.log('[Mount] lastFile:', lastFile);
-    if (!hasFile && lastFile) {
-      const updates = new URLSearchParams(searchParams);
-      updates.set('file', lastFile);
-      // Also set path from localStorage cache if available
-      const cachedBasePath = localStorage.getItem('makora:basePath');
-      console.log('[Mount] Setting file from localStorage, cachedBasePath:', cachedBasePath);
-      if (!hasPath && cachedBasePath) {
-        updates.set('path', cachedBasePath);
-      }
-      setSearchParams(updates);
-      setBasePathReady(true);
-    }
-
-    // Load settings from server (for basePath and to verify rememberLastFile is still enabled)
+    // Load settings from server first, then restore last file only if enabled
     const loadSettings = async () => {
       try {
         const settings = await Meteor.callAsync('settings.getWebdav');
@@ -288,13 +271,14 @@ function EditorPage() {
           needsUpdate = true;
         }
 
-        // If rememberLastFile is disabled but we optimistically loaded a file, clear it
-        if (!hasFile && !settings?.rememberLastFile && lastFile) {
-          console.log('[Mount] rememberLastFile disabled, clearing file');
-          updates.delete('file');
+        // Restore last file only if rememberLastFile is enabled AND no file in URL
+        const lastFile = getLastFile();
+        if (!currentHasFile && settings?.rememberLastFile && lastFile) {
+          console.log('[Mount] Restoring last file:', lastFile);
+          updates.set('file', lastFile);
           needsUpdate = true;
-          setLoading(false);
-        } else if (!hasFile && !lastFile) {
+        } else {
+          // No file to restore
           setLoading(false);
         }
 
@@ -303,6 +287,7 @@ function EditorPage() {
         }
       } catch (err) {
         console.error('Failed to load settings:', err);
+        setLoading(false);
       } finally {
         setBasePathReady(true);
       }
