@@ -204,6 +204,8 @@ function EditorPage() {
   const currentFile = searchParams.get('file');
   const isMobile = useIsMobile();
 
+  console.log('[EditorPage] currentFile:', currentFile, 'isMobile:', isMobile);
+
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileDir, setFileDir] = useState('/');
   const [editorKey, setEditorKey] = useState(0);
