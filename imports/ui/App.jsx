@@ -189,8 +189,13 @@ function EditorPage() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileDir, setFileDir] = useState('/');
   const [editorKey, setEditorKey] = useState(0);
-  // Start loading if we have a file to load from URL (page refresh scenario)
-  const [loading, setLoading] = useState(!!searchParams.get('file'));
+  // Start loading if we have a file to load from URL, or if we might restore a last file
+  const [loading, setLoading] = useState(() => {
+    if (searchParams.get('file')) return true;
+    // Check if we might restore a last file (we'll verify settings async)
+    const lastFile = getLastFile();
+    return !!lastFile;
+  });
   // Track which file is being loaded (for file browser spinner)
   const [loadingFilePath, setLoadingFilePath] = useState(searchParams.get('file'));
   // Track if we're reloading (vs initial load) - keeps editor visible on mobile
@@ -233,7 +238,13 @@ function EditorPage() {
           if (lastFile) {
             updates.set('file', lastFile);
             needsUpdate = true;
+          } else {
+            // No last file to restore, clear loading state
+            setLoading(false);
           }
+        } else if (!hasFile) {
+          // rememberLastFile is disabled, clear loading state
+          setLoading(false);
         }
 
         if (needsUpdate) {
@@ -571,7 +582,7 @@ function EditorPage() {
     <div className="h-dvh flex flex-col overflow-x-hidden">
       {/* Header */}
       <div className="bg-cream border-b border-cream px-2 sm:px-4 py-1 sm:py-2 flex items-center shrink-0 z-40">
-        {isMobile && currentFile && !loading ? (
+        {isMobile && currentFile ? (
           <button
             onClick={() => {
               setSearchParams(prev => {
@@ -599,7 +610,7 @@ function EditorPage() {
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
         <SplitPanel
-          showRightPane={!!currentFile && (!loading || reloading)}
+          showRightPane={!!currentFile}
           left={
             basePathReady ? (
               <FileBrowser
@@ -610,8 +621,8 @@ function EditorPage() {
                 loadingFilePath={loadingFilePath}
               />
             ) : (
-              <div className="h-full flex items-center justify-center bg-gray-50">
-                <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+              <div className="fixed inset-0 bg-white z-50 flex items-center justify-center">
+                <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
               </div>
             )
           }
@@ -649,13 +660,16 @@ function EditorPage() {
 
                 {/* Editor area */}
                 <div className="flex-1 overflow-auto relative">
-                  {/* Loading overlay with spinner - shown when loading without cached content */}
-                  {loading && (
-                    <div className="absolute inset-0 bg-white z-10 flex items-center justify-center">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-                        <span className="text-sm text-gray-500">Loading...</span>
-                      </div>
+                  {/* Loading overlay with spinner */}
+                  <div
+                    className={`fixed inset-0 bg-white z-50 flex items-center justify-center transition-opacity duration-150 ${loading && !reloading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                  >
+                    <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+                  </div>
+                  {/* Inline spinner for reloading (already in editor) */}
+                  {loading && reloading && (
+                    <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center">
+                      <div className="w-6 h-6 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
                     </div>
                   )}
                   {/* Only render editor once we have content (editorKey > 0) */}
@@ -729,10 +743,9 @@ function AuthGate({ children }) {
 
   if (isLoading) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-gray-50">
+      <div className="fixed inset-0 bg-white z-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-          <span className="text-sm text-gray-500">Loading...</span>
         </div>
       </div>
     );
@@ -771,10 +784,9 @@ function WebDAVConfigGate({ children }) {
 
   if (webdavConfigured === null) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-gray-50">
+      <div className="fixed inset-0 bg-white z-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-          <span className="text-sm text-gray-500">Loading...</span>
         </div>
       </div>
     );

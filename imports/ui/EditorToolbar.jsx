@@ -310,7 +310,7 @@ export const EditorToolbar = memo(function EditorToolbar({ editorRef, disabled, 
 
   return (
     <div
-      className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-0.5 sm:py-1 bg-gray-50 border-b border-gray-200"
+      className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-0.5 sm:py-1 bg-gray-50 border-b border-gray-200 min-h-[36px] sm:min-h-[40px]"
       data-testid="editor-toolbar"
     >
       {/* Text formatting */}
