@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Meteor } from 'meteor/meteor';
 
 const REMEMBER_LAST_FILE_KEY = 'makora:rememberLastFile';
+const ENABLE_DEBUGGER_KEY = 'makora:enableDebugger';
 
 export function Settings({ onSaved, isModal = false }) {
   const [url, setUrl] = useState('');
@@ -27,6 +28,14 @@ export function Settings({ onSaved, isModal = false }) {
       return false;
     }
   });
+  // Enable debugger (eruda console) - stored in localStorage
+  const [enableDebugger, setEnableDebugger] = useState(() => {
+    try {
+      return localStorage.getItem(ENABLE_DEBUGGER_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     loadSettings();
@@ -40,6 +49,20 @@ export function Settings({ onSaved, isModal = false }) {
       // localStorage might be disabled
     }
   }, [rememberLastFile]);
+
+  // Save enableDebugger to localStorage and reload to apply
+  useEffect(() => {
+    try {
+      const current = localStorage.getItem(ENABLE_DEBUGGER_KEY) === 'true';
+      if (current !== enableDebugger) {
+        localStorage.setItem(ENABLE_DEBUGGER_KEY, enableDebugger ? 'true' : 'false');
+        // Reload to apply debugger change
+        window.location.reload();
+      }
+    } catch {
+      // localStorage might be disabled
+    }
+  }, [enableDebugger]);
 
   const loadSettings = async () => {
     try {
@@ -136,13 +159,34 @@ export function Settings({ onSaved, isModal = false }) {
     );
   }
 
+  // Toggle switch component
+  const Toggle = ({ checked, onChange, label, description }) => (
+    <div className="flex items-center justify-between py-3">
+      <div>
+        <label className="text-sm font-medium text-charcoal">{label}</label>
+        {description && <p className="text-xs text-warm-gray/70 mt-0.5">{description}</p>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? 'bg-terracotta' : 'bg-gray-300'}`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`}
+        />
+      </button>
+    </div>
+  );
+
   const cardContent = (
     <>
       {/* Card */}
-      <div className="bg-ivory rounded-2xl border border-cream p-8 shadow-lg">
+      <div className="bg-ivory rounded-2xl border border-cream p-6 shadow-lg space-y-6">
         {/* Sign out link - only show when not modal */}
         {!isModal && (
-          <div className="flex justify-end mb-6">
+          <div className="flex justify-end -mt-2 -mr-2">
             <button
               type="button"
               onClick={() => Meteor.logout()}
@@ -153,10 +197,13 @@ export function Settings({ onSaved, isModal = false }) {
           </div>
         )}
 
-        <form onSubmit={handleSave} className="space-y-5">
+        {/* WebDAV Configuration Section */}
+        <form onSubmit={handleSave} className="space-y-4">
+          <h3 className="text-xs font-medium text-warm-gray uppercase tracking-wider">WebDAV Connection</h3>
+
           <div>
             <label className="flex items-center gap-2 text-sm font-medium text-charcoal mb-2">
-              WebDAV URL
+              Server URL
               {loading && (
                 <div className="w-3 h-3 border border-warm-gray/30 border-t-charcoal rounded-full animate-spin" />
               )}
@@ -169,7 +216,7 @@ export function Settings({ onSaved, isModal = false }) {
               className="w-full px-4 py-3 bg-white border border-cream rounded-xl text-charcoal placeholder-warm-gray/50 text-sm"
               required
             />
-            <p className="mt-2 text-xs text-warm-gray/70">
+            <p className="mt-1.5 text-xs text-warm-gray/70">
               Nextcloud: https://your-server/remote.php/dav/files/username
             </p>
           </div>
@@ -200,10 +247,23 @@ export function Settings({ onSaved, isModal = false }) {
               className="w-full px-4 py-3 bg-white border border-cream rounded-xl text-charcoal placeholder-warm-gray/50 text-sm"
               required={!hasPassword}
             />
-            <p className="mt-2 text-xs text-warm-gray/70">
+            <p className="mt-1.5 text-xs text-warm-gray/70">
               For Nextcloud, create an app password in Settings → Security
             </p>
           </div>
+
+          {/* Test Connection Button */}
+          <button
+            type="button"
+            onClick={handleTest}
+            disabled={testing || !url || !username || (!password && !hasPassword)}
+            className="w-full px-4 py-2.5 text-sm font-medium text-charcoal bg-white border border-cream rounded-xl hover:border-warm-gray/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {testing && (
+              <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin" />
+            )}
+            Test Connection
+          </button>
 
           {/* Status messages */}
           {error && (
@@ -294,51 +354,38 @@ export function Settings({ onSaved, isModal = false }) {
             </div>
           )}
 
-          {/* Remember last file toggle */}
-          <div className="flex items-center justify-between py-3 border-t border-cream">
-            <div>
-              <label className="text-sm font-medium text-charcoal">Remember last file</label>
-              <p className="text-xs text-warm-gray/70 mt-0.5">Open the last viewed file on startup</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={rememberLastFile}
-              onClick={() => setRememberLastFile(!rememberLastFile)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${rememberLastFile ? 'bg-terracotta' : 'bg-gray-300'}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rememberLastFile ? 'translate-x-6' : 'translate-x-1'}`}
-              />
-            </button>
-          </div>
-
-          {/* Buttons */}
-          <div className="flex gap-3 pt-3">
-            <button
-              type="button"
-              onClick={handleTest}
-              disabled={testing || !url || !username || (!password && !hasPassword)}
-              className="flex-1 px-4 py-3 text-sm font-medium text-charcoal bg-white border border-cream rounded-xl hover:border-warm-gray/30 disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {testing && (
-                <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin" />
-              )}
-              Test Connection
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !url || !username || (!password && !hasPassword)}
-              className="flex-1 px-4 py-3 text-sm font-medium text-white bg-terracotta rounded-xl hover:bg-terracotta-dark disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Save & Continue
-            </button>
-          </div>
+          {/* Save Button */}
+          <button
+            type="submit"
+            disabled={saving || !url || !username || (!password && !hasPassword)}
+            className="w-full px-4 py-3 text-sm font-medium text-white bg-terracotta rounded-xl hover:bg-terracotta-dark disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : 'Save & Continue'}
+          </button>
         </form>
+
+        {/* Preferences Section */}
+        <div className="border-t border-cream pt-5 space-y-1">
+          <h3 className="text-xs font-medium text-warm-gray uppercase tracking-wider mb-3">Preferences</h3>
+
+          <Toggle
+            checked={rememberLastFile}
+            onChange={setRememberLastFile}
+            label="Remember last file"
+            description="Open the last viewed file on startup"
+          />
+
+          <Toggle
+            checked={enableDebugger}
+            onChange={setEnableDebugger}
+            label="Enable debugger"
+            description="Show developer console (reloads page)"
+          />
+        </div>
       </div>
 
       {/* Footer */}
-      <p className="text-center mt-8 text-warm-gray/70 text-xs">
+      <p className="text-center mt-6 text-warm-gray/70 text-xs">
         Your credentials are stored securely and never shared.
       </p>
     </>

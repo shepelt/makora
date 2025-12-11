@@ -3,10 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { Meteor } from 'meteor/meteor';
 import { App } from '/imports/ui/App';
 
-// Load mobile console (eruda) for debugging on iPad/mobile
-// Enable via settings or ?debug URL parameter
+// Load mobile console (eruda) for debugging
+// Enable via: settings, localStorage toggle, or ?debug URL parameter
 const urlParams = new URLSearchParams(window.location.search);
-if (Meteor.settings?.public?.enableMobileConsole || urlParams.has('debug')) {
+const debuggerEnabled =
+  Meteor.settings?.public?.enableMobileConsole ||
+  urlParams.has('debug') ||
+  localStorage.getItem('makora:enableDebugger') === 'true';
+
+if (debuggerEnabled) {
   const script = document.createElement('script');
   script.src = 'https://cdn.jsdelivr.net/npm/eruda';
   script.onload = () => {
