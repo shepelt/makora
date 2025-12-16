@@ -75,8 +75,38 @@
 </head>
 
 <body>
-  <div id="react-target"></div>
+  <div id="react-target">
+    <!-- Loading screen shown while bundle loads - replaced by React -->
+    <div id="initial-loader" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #FAFAFA;">
+      <h1 style="font-family: 'Crimson Pro', Georgia, serif; font-size: 2rem; font-weight: 300; color: #3C3C3B; margin-bottom: 1.5rem;">Makora</h1>
+      <div style="width: 200px; height: 3px; background: #E8E8E6; border-radius: 2px; overflow: hidden;">
+        <div id="load-progress" style="height: 100%; background: #3C3C3B; width: 0%; transition: width 0.3s ease-out;"></div>
+      </div>
+      <p style="margin-top: 0.75rem; font-size: 0.75rem; color: #9A9A98;">Loading...</p>
+    </div>
+  </div>
   <script>
+    // Animate progress bar while bundle loads
+    (function() {
+      var progress = document.getElementById('load-progress');
+      var start = Date.now();
+      var duration = 10000; // 10 seconds to reach 90%
+
+      function updateProgress() {
+        var elapsed = Date.now() - start;
+        // Ease-out curve: fast start, slow finish
+        var pct = Math.min(90, 90 * (1 - Math.pow(1 - elapsed / duration, 3)));
+        progress.style.width = pct + '%';
+        if (pct < 90) requestAnimationFrame(updateProgress);
+      }
+      updateProgress();
+
+      // Jump to 100% when DOM is ready (React about to mount)
+      document.addEventListener('DOMContentLoaded', function() {
+        progress.style.width = '100%';
+      });
+    })();
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js');
     }

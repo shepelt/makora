@@ -393,6 +393,7 @@ function saveExpandedPaths(paths) {
 export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onFileDelete, loadingFilePath }) {
   const [expandedPaths, setExpandedPaths] = useState(() => loadExpandedPaths());
   const [loading, setLoading] = useState(true);
+  console.log('[FileBrowser] Render - loading:', loading, 'basePath:', basePath);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [error, setError] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
@@ -825,6 +826,7 @@ export function FileBrowser({ onFileSelect, basePath = '/', currentFilePath, onF
 
       {/* Tree */}
       <div className="flex-1 overflow-auto">
+        {console.log('[FileBrowser:Tree] loading:', loading, 'error:', error, 'rootItems:', rootItems.length)}
         {loading && (
           <div className="p-4 flex items-center justify-center gap-2 text-gray-500">
             <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />

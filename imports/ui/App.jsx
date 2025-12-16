@@ -240,10 +240,17 @@ function EditorPage() {
   const editorRef = React.useRef(null);
   const pendingContentRef = React.useRef('');
   // Track if basePath has been resolved from settings
-  const [basePathReady, setBasePathReady] = useState(!!searchParams.get('path'));
+  const [basePathReady, setBasePathReady] = useState(() => {
+    const ready = !!searchParams.get('path');
+    console.log('[Init] basePathReady initial:', ready);
+    return ready;
+  });
+
+  console.log('[Render] basePathReady:', basePathReady, 'basePath:', basePath, 'loading:', loading);
 
   // Load saved basePath and optionally last file on mount
   useEffect(() => {
+    console.log('[Effect:Mount] Starting...');
     const hasPath = searchParams.get('path');
     const hasFile = searchParams.get('file');
     console.log('[Mount] hasPath:', hasPath, 'hasFile:', hasFile, 'URL:', window.location.href);
@@ -693,6 +700,7 @@ function EditorPage() {
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
+        {console.log('[Render:SplitPanel] basePathReady:', basePathReady, '→ showing:', basePathReady ? 'FileBrowser' : 'Spinner')}
         <SplitPanel
           showRightPane={!!currentFile}
           left={
@@ -755,9 +763,9 @@ function EditorPage() {
                   }}
                 >
                 <div className="flex-1 overflow-auto relative h-full">
-                  {/* Loading overlay with spinner */}
+                  {/* Loading overlay with spinner - contained to editor panel */}
                   <div
-                    className={`fixed inset-0 bg-white z-50 flex items-center justify-center transition-opacity duration-150 ${loading && !reloading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    className={`absolute inset-0 bg-white z-30 flex items-center justify-center transition-opacity duration-150 ${loading && !reloading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                   >
                     <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-500 rounded-full animate-spin" />
                   </div>
