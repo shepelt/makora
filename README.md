@@ -4,7 +4,7 @@ A WYSIWYG markdown editor with WebDAV backend support. Edit your markdown files 
 
 ## Features
 
-- **WYSIWYG Editing**: Rich text editing powered by Tiptap (ProseMirror)
+- **WYSIWYG Editing**: Rich text editing powered by Muya
 - **WebDAV Integration**: Connect to any WebDAV server
 - **File Browser**: Tree view navigation with folder expansion
 - **Keyboard Shortcuts**: Familiar shortcuts for formatting and saving
@@ -87,7 +87,7 @@ npm run test:unit
 
 - **Meteor.js 3.x** - Full-stack framework
 - **React 18** - UI components
-- **Tiptap** - WYSIWYG editor (ProseMirror-based)
+- **Muya** - WYSIWYG markdown editor
 - **Tailwind CSS** - Styling
 - **Playwright** - E2E testing
 

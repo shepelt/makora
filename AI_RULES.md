@@ -5,8 +5,8 @@ Makora is a WYSIWYG markdown editor with WebDAV backend support. It provides a c
 
 ## Technology Stack
 - **Framework**: Meteor.js 3.x
-- **Frontend**: React 18.x with Tiptap editor
-- **Editor**: Tiptap (ProseMirror-based WYSIWYG)
+- **Frontend**: React 18.x with Muya editor
+- **Editor**: Muya (WYSIWYG markdown editor)
 - **Styling**: Tailwind CSS
 - **Storage**: WebDAV (remote file system)
 - **Testing**: Playwright (E2E), Mocha (unit)
@@ -27,7 +27,7 @@ Makora is a WYSIWYG markdown editor with WebDAV backend support. It provides a c
 
 ## Key Components
 - **App.jsx**: Main application with routing and file loading
-- **Editor.jsx**: Tiptap WYSIWYG editor wrapper
+- **MuyaEditor.jsx**: Muya WYSIWYG editor wrapper
 - **FileBrowser.jsx**: Tree view file browser with WebDAV integration
 - **webdav.js**: Server-side WebDAV methods (list, read, write)
 

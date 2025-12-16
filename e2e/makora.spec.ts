@@ -1442,7 +1442,7 @@ test.describe('Makora Images', () => {
     await page.getByText('image-test.md').click();
     await expect(page.getByText('Image Test Document')).toBeVisible({ timeout: 10000 });
 
-    // Should have images rendered (tiptap-markdown may render HTML images differently)
+    // Should have images rendered
     const images = page.locator('.mu-editor img');
     const count = await images.count();
     expect(count).toBeGreaterThanOrEqual(3);
