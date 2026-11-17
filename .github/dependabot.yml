@@ -1,0 +1,23 @@
+# Dependabot reads this file from the default branch only; updates target
+# the `next` rewrite branch.
+version: 2
+updates:
+  # Track upstream Muya closely: Makora pins @muyajs/core and carries runtime
+  # patches (src/muyaPatches.ts on `next`) until upstream releases its fixes.
+  - package-ecosystem: npm
+    directory: /
+    target-branch: next
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: "@muyajs/core"
+    labels: [dependencies, next]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: next
+    schedule:
+      interval: monthly
+    labels: [dependencies]
