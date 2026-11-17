@@ -154,3 +154,21 @@ test('a remembered folder that no longer exists is dropped silently; dot-folders
   await expect(page.getByText(/Could not list folder/)).toHaveCount(0);
   await expect(nav.getByTitle('.sync', { exact: true })).toHaveCount(0);
 });
+
+test('"Show changes" lists the lines saving would reformat', async ({ page }, info) => {
+  const name = freshFile(info.project.name, '# T\n\n|a|b|\n|-|-|\n|1|2|\n');
+  await connect(page);
+  await openFile(page, name);
+  await page.getByRole('button', { name: 'Show changes' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Formatting changes' });
+  await expect(dialog).toContainText('line 3');
+  await expect(dialog).toContainText('|-|-|');
+  await expect(dialog).toContainText('| --- | --- |');
+  if (info.project.name === 'chromium') {
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await page.screenshot({ path: '/private/tmp/claude-501/-Users-shepelt-makora/a84e5a7c-d780-483e-b74b-73bc3c6bb0aa/scratchpad/v-normalize.png' });
+  }
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(disk(name)).toBe('# T\n\n|a|b|\n|-|-|\n|1|2|\n');
+});

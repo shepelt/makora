@@ -4,6 +4,8 @@ import { ConflictError, normalizeEtag, read, stat, write } from './dav';
 import type { DavConfig } from './dav';
 import type { EditorHandle } from './Editor';
 import { clearDraft, getDraft, putDraft } from './store';
+import { lineHunks } from './lineDiff';
+import type { Hunk } from './lineDiff';
 
 export type Status = 'idle' | 'loading' | 'clean' | 'dirty' | 'saving' | 'conflict' | 'error';
 
@@ -19,7 +21,7 @@ export type DocState = {
   // A local draft exists but was based on an older server version.
   staleDraft: { text: string; updatedAt: number } | null;
   // Saving would change formatting of untouched parts of the file.
-  normalizes: { changedLines: number } | null;
+  normalizes: { changedLines: number; hunks: Hunk[] } | null;
   lastSavedAt: number | null;
 };
 
@@ -49,15 +51,6 @@ export function fromEditor(md: string, shape: FileShape): string {
   if (shape.crlf) out = out.replace(/\n/g, '\r\n');
   if (shape.bom) out = '﻿' + out;
   return out;
-}
-
-function countChangedLines(a: string, b: string): number {
-  const al = a.split('\n');
-  const bl = b.split('\n');
-  let n = Math.abs(al.length - bl.length);
-  const len = Math.min(al.length, bl.length);
-  for (let i = 0; i < len; i++) if (al[i] !== bl[i]) n++;
-  return n;
 }
 
 function conflictCopyName(path: string): string {
@@ -248,7 +241,7 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
     const md = await editorRef.current.getMarkdown();
     const roundTrip = toEditor(fromEditor(md, s.shape));
     if (roundTrip !== s.original) {
-      patch({ normalizes: { changedLines: countChangedLines(s.original, roundTrip) } });
+      patch({ normalizes: lineHunks(s.original, roundTrip) });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patch]);
