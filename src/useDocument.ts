@@ -112,7 +112,12 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
       await s.saving;
       if (!isDirty()) return;
     }
-    if (!isDirty() && !opts.force) return;
+    if (!isDirty() && !opts.force) {
+      // Muya applies edits on the next animation frame; an edit made in the
+      // same frame as Cmd+S hasn't been counted yet.
+      for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(() => r(null)));
+      if (!isDirty()) return;
+    }
     clearTimeout(s.autosave);
 
     const run = (async () => {

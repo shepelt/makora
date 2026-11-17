@@ -95,3 +95,11 @@ export async function clearDraft(cfg: DavConfig, path: string) {
     /* ignore */
   }
 }
+
+// --- preferences (per device) -------------------------------------------------
+export const prefs = {
+  basePath: (cfg: DavConfig): string => safeGet(`makora:basePath:${cfg.url}|${cfg.username}`) || '/',
+  setBasePath: (cfg: DavConfig, p: string) => safeSet(`makora:basePath:${cfg.url}|${cfg.username}`, p),
+  rememberLastFile: (): boolean => safeGet('makora:rememberLastFile') !== 'false',
+  setRememberLastFile: (v: boolean) => safeSet('makora:rememberLastFile', String(v)),
+};

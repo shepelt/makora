@@ -4,10 +4,10 @@ import { writeFileSync } from 'node:fs';
 
 test('open profile', async ({ page }) => {
   await page.goto('/?key=e2e-key');
-  await page.getByPlaceholder('https://cloud.example.com/remote.php/dav/files/you').fill('http://localhost:4081/remote.php/dav/files/test');
+  await page.getByLabel('Server URL').fill('http://localhost:4081/remote.php/dav/files/test');
   await page.getByLabel('Username').fill('test');
   await page.getByLabel('Password').fill('test');
-  await page.getByRole('button', { name: 'Connect' }).click();
+  await page.getByRole('button', { name: 'Save & Continue' }).click();
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.THROTTLE || 4) });
   await cdp.send('Profiler.enable');

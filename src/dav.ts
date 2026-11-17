@@ -173,3 +173,22 @@ export async function write(
 export async function testConnection(cfg: DavConfig): Promise<void> {
   await list(cfg, '/');
 }
+
+export async function remove(cfg: DavConfig, path: string): Promise<void> {
+  const res = await request(cfg, 'DELETE', path);
+  if (!res.ok && res.status !== 404) throw new DavError(res.status, `Delete failed (HTTP ${res.status})`);
+}
+
+export async function move(cfg: DavConfig, from: string, to: string): Promise<void> {
+  const res = await request(cfg, 'MOVE', from, {
+    headers: { 'X-Dav-Destination': encodePath(to), Overwrite: 'F' },
+  });
+  if (res.status === 412) throw new DavError(412, 'A file or folder with that name already exists');
+  if (!res.ok) throw new DavError(res.status, `Rename failed (HTTP ${res.status})`);
+}
+
+export async function mkcol(cfg: DavConfig, path: string): Promise<void> {
+  const res = await request(cfg, 'MKCOL', path);
+  if (res.status === 405) throw new DavError(405, 'A file or folder with that name already exists');
+  if (!res.ok) throw new DavError(res.status, `Could not create folder (HTTP ${res.status})`);
+}

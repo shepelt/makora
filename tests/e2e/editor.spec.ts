@@ -18,10 +18,10 @@ const disk = (name: string) => readFileSync(join(DAV_DIR, name), 'utf8');
 
 async function connect(page: Page) {
   await page.goto(`/?key=${KEY}`);
-  await page.getByPlaceholder('https://cloud.example.com/remote.php/dav/files/you').fill(DAV_URL);
+  await page.getByLabel('Server URL').fill(DAV_URL);
   await page.getByLabel('Username').fill('test');
   await page.getByLabel('Password').fill('test');
-  await page.getByRole('button', { name: 'Connect' }).click();
+  await page.getByRole('button', { name: 'Save & Continue' }).click();
   await expect(page.getByRole('navigation', { name: 'Files' })).toBeVisible();
 }
 
@@ -29,9 +29,8 @@ async function openFile(page: Page, name: string) {
   const nav = page.getByRole('navigation', { name: 'Files' });
   // Newly created fixture files appear after a refresh.
   if (!(await nav.getByTitle(name).isVisible())) await page.getByTitle('Refresh').click();
-  if (await page.getByRole('button', { name: 'Toggle files' }).isVisible() && !(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Toggle files' }).click();
-  }
+  // On phones the file list and editor are separate screens.
+  if (!(await nav.isVisible())) await page.getByRole('button', { name: 'Back to files' }).click();
   await nav.getByTitle(name).click();
   await expect(page.getByTestId('status')).toHaveAttribute('data-status', 'clean');
 }
