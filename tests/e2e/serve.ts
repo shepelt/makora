@@ -14,7 +14,9 @@ export const E2E = {
 rmSync(E2E.davDir, { recursive: true, force: true });
 mkdirSync(E2E.davDir, { recursive: true });
 cpSync('tests/fixtures/webdav', E2E.davDir, { recursive: true });
-await startWebdav(E2E.davPort, E2E.davDir, { prefix: E2E.prefix });
+// Emulate Apache's gzip ETag suffix (as on a typical Nextcloud) so saves are
+// tested against the server behavior that bit us in practice.
+await startWebdav(E2E.davPort, E2E.davDir, { prefix: E2E.prefix, apacheGzipEtags: true });
 
 const app = spawn('node', ['server/index.ts'], {
   stdio: 'inherit',

@@ -30,6 +30,14 @@ export class ConflictError extends DavError {
   }
 }
 
+// Servers and proxies decorate ETags of compressed responses (Apache adds
+// "-gzip", some add W/). Normalize to the strong form the server compares
+// If-Match against.
+export function normalizeEtag(etag: string | null | undefined): string | null {
+  if (!etag) return null;
+  return etag.trim().replace(/^W\//, '').replace(/-(gzip|br|deflate|zstd)"$/, '"');
+}
+
 function basicAuth(cfg: DavConfig): string {
   const bytes = new TextEncoder().encode(`${cfg.username}:${cfg.password}`);
   let bin = '';
@@ -129,7 +137,7 @@ export async function read(cfg: DavConfig, path: string): Promise<{ text: string
   if (!res.ok) throw new DavError(res.status, `Could not open file (HTTP ${res.status})`);
   const buf = await res.arrayBuffer();
   const text = new TextDecoder('utf-8').decode(buf);
-  return { text, etag: res.headers.get('etag') };
+  return { text, etag: normalizeEtag(res.headers.get('etag')) };
 }
 
 export async function stat(cfg: DavConfig, path: string): Promise<{ etag: string | null; exists: boolean }> {
@@ -140,7 +148,7 @@ export async function stat(cfg: DavConfig, path: string): Promise<{ etag: string
   if (res.status === 404) return { etag: null, exists: false };
   if (res.status !== 207) throw new DavError(res.status, `Could not check file (HTTP ${res.status})`);
   const [entry] = parseMultistatus(await res.text(), new URL(cfg.url).pathname);
-  return { etag: entry?.etag ?? null, exists: true };
+  return { etag: normalizeEtag(entry?.etag), exists: true };
 }
 
 // Writes only if the file still has the ETag we last saw. `etag: null` means
@@ -157,7 +165,7 @@ export async function write(
   const res = await request(cfg, 'PUT', path, { headers, body: text });
   if (res.status === 412) throw new ConflictError();
   if (!res.ok) throw new DavError(res.status, `Save failed (HTTP ${res.status})`);
-  let newEtag = res.headers.get('etag');
+  let newEtag = normalizeEtag(res.headers.get('etag'));
   if (!newEtag) newEtag = (await stat(cfg, path)).etag;
   return { etag: newEtag };
 }

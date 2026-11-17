@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { ConflictError, read, stat, write } from './dav';
+import { ConflictError, normalizeEtag, read, stat, write } from './dav';
 import type { DavConfig } from './dav';
 import type { EditorHandle } from './Editor';
 import { clearDraft, getDraft, putDraft } from './store';
@@ -203,7 +203,7 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
       s.seq = 0;
       s.savedSeq = 0;
       if (draft && draft.text !== s.original) {
-        if (draft.baseEtag && draft.baseEtag === file.etag) {
+        if (draft.baseEtag && normalizeEtag(draft.baseEtag) === file.etag) {
           // Unsaved work on top of the current server version: restore it.
           initial = draft.text;
           s.seq = 1;

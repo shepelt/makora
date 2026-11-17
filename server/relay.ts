@@ -166,6 +166,10 @@ export async function relay(req: Request, davPath: string, opts: RelayOptions = 
   const target = joinTarget(base, davPath);
 
   const headers = new Headers();
+  // Ask for uncompressed responses: Apache's mod_deflate rewrites the ETag of
+  // compressed responses ("abc" -> "abc-gzip"), which then never matches
+  // If-Match and makes every save look like a conflict.
+  headers.set('accept-encoding', 'identity');
   for (const name of FORWARD_REQUEST_HEADERS) {
     const v = req.headers.get(name);
     if (v) headers.set(name, v);

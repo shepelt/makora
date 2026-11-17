@@ -34,7 +34,11 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 
 export type TestWebdav = { dir: string; port: number; server: Server; stop: () => Promise<void> };
 
-export function startWebdav(port = 4080, dir?: string, opts: { prefix?: string } = {}): Promise<TestWebdav> {
+export function startWebdav(
+  port = 4080,
+  dir?: string,
+  opts: { prefix?: string; apacheGzipEtags?: boolean } = {},
+): Promise<TestWebdav> {
   const root = dir ?? mkdtempSync(join(tmpdir(), 'makora-webdav-'));
   if (!dir) cpSync(new URL('./fixtures/webdav', import.meta.url).pathname, root, { recursive: true });
   const prefix = (opts.prefix ?? '').replace(/\/+$/, ''); // e.g. /remote.php/dav/files/test
@@ -90,7 +94,12 @@ ${isDir ? '' : `<d:getcontentlength>${st.size}</d:getcontentlength>`}
       case 'HEAD': {
         if (!exists || statSync(full).isDirectory()) return send(404);
         const body = readFileSync(full);
-        res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', ETag: etagOf(full), 'Content-Length': String(body.length) });
+        // Apache mod_deflate (DeflateAlterETag AddSuffix, the default) tags
+        // compressed responses with a different ETag, which then never
+        // matches If-Match. We only emulate the ETag change, not the gzip.
+        const gz = opts.apacheGzipEtags && /gzip/.test(String(req.headers['accept-encoding'] ?? ''));
+        const etag = gz ? etagOf(full).replace(/"$/, '-gzip"') : etagOf(full);
+        res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', ETag: etag, 'Content-Length': String(body.length) });
         return res.end(method === 'HEAD' ? undefined : body);
       }
       case 'PUT': {
@@ -155,7 +164,7 @@ ${isDir ? '' : `<d:getcontentlength>${st.size}</d:getcontentlength>`}
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.argv[2] || 4080);
-  startWebdav(port, process.argv[3], { prefix: process.env.DAV_PREFIX }).then(({ dir }) =>
+  startWebdav(port, process.argv[3], { prefix: process.env.DAV_PREFIX, apacheGzipEtags: process.env.APACHE_GZIP === '1' }).then(({ dir }) =>
     console.log(`webdav on :${port}${process.env.DAV_PREFIX ?? ''} serving ${dir} (user test/test)`),
   );
 }
