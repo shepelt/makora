@@ -4,8 +4,7 @@ import { ConflictError, normalizeEtag, read, stat, write } from './dav';
 import type { DavConfig } from './dav';
 import type { EditorHandle } from './Editor';
 import { clearDraft, getDraft, putDraft } from './store';
-import { lineHunks } from './lineDiff';
-import type { Hunk } from './lineDiff';
+import { losslessMerge } from './losslessMerge';
 
 export type Status = 'idle' | 'loading' | 'clean' | 'dirty' | 'saving' | 'conflict' | 'error';
 
@@ -20,8 +19,6 @@ export type DocState = {
   remoteChanged: boolean;
   // A local draft exists but was based on an older server version.
   staleDraft: { text: string; updatedAt: number } | null;
-  // Saving would change formatting of untouched parts of the file.
-  normalizes: { changedLines: number; hunks: Hunk[] } | null;
   lastSavedAt: number | null;
 };
 
@@ -71,7 +68,6 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
     initialMarkdown: '',
     remoteChanged: false,
     staleDraft: null,
-    normalizes: null,
     lastSavedAt: null,
   });
 
@@ -80,13 +76,14 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
     path: null as string | null,
     etag: null as string | null,
     shape: { crlf: false, bom: false, trailing: '\n' } as FileShape,
-    original: '', // editor-normalized text as loaded
+    original: '', // the file as on the server (editor line endings)
+    base: null as string | null, // Muya's serialization of `original`, before edits
     seq: 0, // increments on every edit
     savedSeq: 0,
     saving: null as Promise<void> | null,
     autosave: 0 as any,
     draftTimer: 0 as any,
-    checkedNormalization: false,
+    baseCaptured: false,
   });
 
   const docRef = useRef(doc);
@@ -123,9 +120,14 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
         await putDraft(cfg, path, { text: md, baseEtag: s.etag, updatedAt: Date.now() });
         let etag = s.etag;
         if (opts.force) etag = (await stat(cfg, path)).etag;
-        const res = await write(cfg, path, fromEditor(md, s.shape), etag);
+        // Lossless save: keep the original text of every untouched line.
+        const edited = toEditor(fromEditor(md, s.shape));
+        const text = s.base !== null ? losslessMerge(s.original, s.base, edited) : edited;
+        const res = await write(cfg, path, fromEditor(text, s.shape), etag);
         if (s.path !== path) return;
         s.etag = res.etag;
+        s.original = text;
+        s.base = edited;
         s.savedSeq = seqAtStart;
         if (isDirty()) {
           patch({ status: 'dirty', lastSavedAt: Date.now(), remoteChanged: false });
@@ -187,7 +189,7 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
     clearTimeout(s.autosave);
     clearTimeout(s.draftTimer);
     s.path = path;
-    patch({ path, status: 'loading', error: null, remoteChanged: false, staleDraft: null, normalizes: null });
+    patch({ path, status: 'loading', error: null, remoteChanged: false, staleDraft: null });
     try {
       performance.mark('open:start');
       const [file, draft] = await Promise.all([read(cfg, path), getDraft(cfg, path)]);
@@ -196,7 +198,8 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
       s.etag = file.etag;
       s.shape = shapeOf(file.text);
       s.original = toEditor(file.text);
-      s.checkedNormalization = false;
+      s.base = null;
+      s.baseCaptured = false;
       let initial = s.original;
       let status: Status = 'clean';
       let staleDraft: DocState['staleDraft'] = null;
@@ -231,20 +234,19 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
     }
   }, [cfg, patch, save, scheduleAutosave]);
 
-  // Called by the editor once it has rendered: check whether a save would
-  // reformat parts of the file the user didn't touch.
+  // Called by the editor once it has rendered: capture Muya's serialization
+  // of the untouched file, the merge base for lossless saves. (A restored
+  // draft has no clean base; those saves use Muya's output as is.)
   const onEditorReady = useCallback(async () => {
     const s = r.current;
-    if (s.checkedNormalization || !editorRef.current) return;
-    s.checkedNormalization = true;
+    if (s.baseCaptured || !editorRef.current) return;
+    s.baseCaptured = true;
     if (isDirty()) return;
+    const path = s.path;
     const md = await editorRef.current.getMarkdown();
-    const roundTrip = toEditor(fromEditor(md, s.shape));
-    if (roundTrip !== s.original) {
-      patch({ normalizes: lineHunks(s.original, roundTrip) });
-    }
+    if (s.path === path && !isDirty()) s.base = toEditor(fromEditor(md, s.shape));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patch]);
+  }, []);
 
   // --- conflict resolution ---------------------------------------------------
 
@@ -348,7 +350,7 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
 
   const close = useCallback(() => {
     r.current.path = null;
-    patch({ path: null, status: 'idle', error: null, staleDraft: null, normalizes: null, remoteChanged: false });
+    patch({ path: null, status: 'idle', error: null, staleDraft: null, remoteChanged: false });
   }, [patch]);
 
   return {

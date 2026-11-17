@@ -17,7 +17,6 @@ import { Settings } from './Settings';
 import { SplitPanel, useIsMobile } from './SplitPanel.jsx';
 import { lastFile, loadConfig, prefs, saveConfig } from './store';
 import { useDocument } from './useDocument';
-import type { Hunk } from './lineDiff';
 
 function UserMenu({ name, onOpenSettings, onDisconnect }: { name: string; onOpenSettings: () => void; onDisconnect: () => void }) {
   const [open, setOpen] = useState(false);
@@ -118,70 +117,6 @@ function Banner({ tone, children }: { tone: 'amber' | 'red' | 'gray'; children: 
   return <div className={`border-b px-4 py-2 text-sm ${cls}`}>{children}</div>;
 }
 
-// Make invisible differences visible: trailing spaces, tabs, NBSP.
-function showWs(line: string) {
-  const m = line.match(/^(.*?)([ \t]*)$/)!;
-  const body = m[1].replace(/\t/g, '→').replace(/\u00a0/g, '⍽');
-  return (
-    <>
-      {body}
-      {m[2] && <span className="bg-amber-200/70 text-amber-800">{m[2].replace(/ /g, '·').replace(/\t/g, '→')}</span>}
-      {line === '' && <span className="text-gray-300">(blank line)</span>}
-    </>
-  );
-}
-
-function NormalizationDialog({ hunks, changedLines, onClose }: { hunks: Hunk[]; changedLines: number; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        className="bg-white rounded-lg shadow-xl w-[720px] max-w-[94vw] max-h-[85vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="Formatting changes"
-      >
-        <div className="p-4 border-b">
-          <h3 className="text-lg font-medium">Formatting changes on save</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            If you edit and save this file, these {changedLines} line{changedLines === 1 ? '' : 's'} will also change, because the editor
-            rewrites markdown in its own style. Nothing is written unless you edit.{' '}
-            <span className="bg-amber-200/70 text-amber-800 px-0.5">··</span> marks trailing spaces.
-          </p>
-        </div>
-        <div className="overflow-auto p-4 space-y-3 font-mono text-xs leading-relaxed">
-          {hunks.map((h, i) => (
-            <div key={i} className="border rounded">
-              <div className="px-2 py-1 bg-gray-50 border-b text-gray-500">line {h.line}</div>
-              {h.before.map((l, j) => (
-                <div key={'b' + j} className="px-2 bg-red-50 text-red-800 whitespace-pre-wrap break-all">
-                  <span className="select-none text-red-400">− </span>
-                  {showWs(l)}
-                </div>
-              ))}
-              {h.after.map((l, j) => (
-                <div key={'a' + j} className="px-2 bg-green-50 text-green-800 whitespace-pre-wrap break-all">
-                  <span className="select-none text-green-500">+ </span>
-                  {showWs(l)}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="p-3 border-t flex justify-end">
-          <button onClick={onClose} className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded">
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ConflictDialog({ onChoose }: { onChoose: (c: 'copy' | 'reload' | 'overwrite') => void }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -211,7 +146,6 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [blockInfo, setBlockInfo] = useState<BlockInfo>({ headingLevel: null, listType: null });
-  const [showNormalization, setShowNormalization] = useState(false);
   const isMobile: boolean = useIsMobile();
   const editorRef = useRef<EditorHandle>(null);
   const { doc, open, close, save, onEdit, onEditorReady, resolveConflict, discardStaleDraft, saveStaleDraftAsCopy } = useDocument(cfg, editorRef);
@@ -362,15 +296,6 @@ export function App() {
                       </button>
                     </Banner>
                   )}
-                  {doc.normalizes && doc.status === 'clean' && (
-                    <Banner tone="gray">
-                      Saving this file will also reformat {doc.normalizes.changedLines} line{doc.normalizes.changedLines === 1 ? '' : 's'} you
-                      didn't edit. Untouched files are never rewritten.
-                      <button className="ml-2 underline" onClick={() => setShowNormalization(true)}>
-                        Show changes
-                      </button>
-                    </Banner>
-                  )}
                   <PullToRefresh disabled={loading} onRefresh={() => doc.path && open(doc.path)}>
                     <div className="flex-1 overflow-auto relative h-full" id="editor-scroll">
                       <div
@@ -408,10 +333,6 @@ export function App() {
         <div className="h-1 bg-gray-200 overflow-hidden shrink-0">
           <div className="h-full bg-blue-500 animate-progress-indeterminate" />
         </div>
-      )}
-
-      {showNormalization && doc.normalizes && (
-        <NormalizationDialog hunks={doc.normalizes.hunks} changedLines={doc.normalizes.changedLines} onClose={() => setShowNormalization(false)} />
       )}
 
       {doc.status === 'conflict' && <ConflictDialog onChoose={(c) => void resolveConflict(c)} />}

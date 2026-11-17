@@ -155,20 +155,32 @@ test('a remembered folder that no longer exists is dropped silently; dot-folders
   await expect(nav.getByTitle('.sync', { exact: true })).toHaveCount(0);
 });
 
-test('"Show changes" lists the lines saving would reformat', async ({ page }, info) => {
-  const name = freshFile(info.project.name, '# T\n\n|a|b|\n|-|-|\n|1|2|\n');
+test('lossless save: only the edited line changes, untouched formatting survives', async ({ page }, info) => {
+  // Muya alone would re-pad the table, collapse the blank lines and drop the
+  // trailing-space hard break; none of that may reach the file.
+  const original = '# Notes\n\n|a|b|\n|-|-|\n|1|2|\n\n\n\nhard break  \nnext line\n\n- item\n\nLast line\n';
+  const name = freshFile(info.project.name, original);
   await connect(page);
   await openFile(page, name);
-  await page.getByRole('button', { name: 'Show changes' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Formatting changes' });
-  await expect(dialog).toContainText('line 3');
-  await expect(dialog).toContainText('|-|-|');
-  await expect(dialog).toContainText('| --- | --- |');
-  if (info.project.name === 'chromium') {
-    await page.setViewportSize({ width: 1100, height: 700 });
-    await page.screenshot({ path: '/private/tmp/claude-501/-Users-shepelt-makora/a84e5a7c-d780-483e-b74b-73bc3c6bb0aa/scratchpad/v-normalize.png' });
-  }
-  await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect(dialog).toHaveCount(0);
-  expect(disk(name)).toBe('# T\n\n|a|b|\n|-|-|\n|1|2|\n');
+  await typeAtEnd(page, ' plus');
+  await expect.poll(() => disk(name), { timeout: 10_000 }).not.toBe(original);
+  expect(disk(name)).toBe(original.replace('Last line\n', 'Last line plus\n'));
+});
+
+test('lossless save also holds for consecutive saves', async ({ page }, info) => {
+  const original = '|a|b|\n|-|-|\n\n\n\nfirst\n\nsecond\n';
+  const name = freshFile(info.project.name, original);
+  await connect(page);
+  await openFile(page, name);
+  await page.locator('.mu-content', { hasText: 'first' }).first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' 1');
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await page.keyboard.press(`${mod}+s`);
+  await expect.poll(() => disk(name), { timeout: 10_000 }).toBe('|a|b|\n|-|-|\n\n\n\nfirst 1\n\nsecond\n');
+  await page.locator('.mu-content', { hasText: 'second' }).first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' 2');
+  await page.keyboard.press(`${mod}+s`);
+  await expect.poll(() => disk(name), { timeout: 10_000 }).toBe('|a|b|\n|-|-|\n\n\n\nfirst 1\n\nsecond 2\n');
 });
