@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Muya } from '@muyajs/core';
 import { fromEditor, shapeOf, toEditor } from '../../src/useDocument.ts';
+import { patchMuyaPerformance } from '../../src/muyaPatches.ts';
 
 const FIXTURES = join(process.cwd(), 'tests/fixtures/webdav');
 const CORPUS = process.env.ROUNDTRIP_DIR || FIXTURES;
@@ -22,6 +23,7 @@ function roundTrip(text: string): string {
   const el = document.createElement('div');
   document.body.appendChild(el);
   const muya = new Muya(el, { markdown: toEditor(text), preferLooseListItem: false, hideQuickInsertHint: true });
+  patchMuyaPerformance(muya);
   muya.init();
   const md = muya.getMarkdown();
   muya.destroy();

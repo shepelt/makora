@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { CodeBlockLanguageSelector, InlineFormatToolbar, Muya } from '@muyajs/core';
 import '@muyajs/core/lib/core.css';
+import { patchMuyaPerformance } from './muyaPatches';
 
 let pluginsRegistered = false;
 function registerPlugins() {
@@ -35,6 +36,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor({ markdown
     const mount = document.createElement('div'); // Muya replaces its element
     host.appendChild(mount);
 
+    performance.mark('muya:start');
     const muya = new Muya(mount, {
       markdown,
       hideQuickInsertHint: true,
@@ -42,7 +44,9 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor({ markdown
       spellcheckEnabled: false,
       autoPairMarkdownSyntax: false,
     });
+    patchMuyaPerformance(muya);
     muya.init();
+    performance.mark('muya:init');
     muyaRef.current = muya;
 
     // `json-change` also fires for the initial render; only count user edits.
@@ -62,7 +66,10 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor({ markdown
     };
     host.addEventListener('keydown', onKeyDown, true);
 
-    requestAnimationFrame(() => onReady?.());
+    requestAnimationFrame(() => {
+      performance.mark('muya:painted');
+      onReady?.();
+    });
 
     return () => {
       host.removeEventListener('keydown', onKeyDown, true);

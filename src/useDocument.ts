@@ -191,7 +191,9 @@ export function useDocument(cfg: DavConfig | null, editorRef: RefObject<EditorHa
     s.path = path;
     patch({ path, status: 'loading', error: null, remoteChanged: false, staleDraft: null, normalizes: null });
     try {
+      performance.mark('open:start');
       const [file, draft] = await Promise.all([read(cfg, path), getDraft(cfg, path)]);
+      performance.mark('open:fetched');
       if (s.path !== path) return;
       s.etag = file.etag;
       s.shape = shapeOf(file.text);

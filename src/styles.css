@@ -40,3 +40,10 @@ body {
 @media (max-width: 820px) {
   .makora-editor .mu-editor { font-size: 16px; }
 }
+
+/* Skip layout/paint of off-screen top-level blocks. Big files have thousands
+   of blocks; without this every edit re-lays out the whole document. */
+.makora-editor .mu-container > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1.8em;
+}

@@ -118,3 +118,22 @@ test('unsaved edits survive a reload', async ({ page }, info) => {
   await expect(page.getByTestId('status')).toHaveAttribute('data-status', 'clean', { timeout: 10_000 });
   expect(disk(name)).toBe('# Doc\n\nbase draft\n');
 });
+
+test('undo restores text (history still works with the Muya perf patches)', async ({ page }, info) => {
+  const name = freshFile(info.project.name, '# Doc\n\nkeep this\n');
+  await connect(page);
+  await openFile(page, name);
+  await typeAtEnd(page, ' TEMP');
+  await expect(page.locator('.makora-editor')).toContainText('keep this TEMP');
+  await page.waitForTimeout(200);
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+  await expect(page.locator('.makora-editor')).not.toContainText('TEMP');
+  await expect(page.locator('.makora-editor')).toContainText('keep this');
+});
+
+test('reference-style links render and update', async ({ page }, info) => {
+  const name = freshFile(info.project.name, 'See [the site][s].\n\n[s]: https://example.com\n');
+  await connect(page);
+  await openFile(page, name);
+  await expect(page.locator('.makora-editor a[href="https://example.com"]').first()).toBeAttached();
+});
