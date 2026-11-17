@@ -3,45 +3,29 @@
 ## Project Overview
 Makora is a WYSIWYG markdown editor with WebDAV backend support. It provides a clean, distraction-free editing experience for markdown files stored on any WebDAV-compatible server (Nextcloud, ownCloud, etc.).
 
-## Technology Stack
-- **Framework**: Meteor.js 3.x
-- **Frontend**: React 18.x with Muya editor
-- **Editor**: Muya (WYSIWYG markdown editor)
-- **Styling**: Tailwind CSS
-- **Storage**: WebDAV (remote file system)
-- **Testing**: Playwright (E2E), Mocha (unit)
-- **Language**: JavaScript (ES6+)
+## Technology Stack (`next` branch)
+- **Client**: Vite + React 18 + TypeScript + Tailwind v4 (build-time)
+- **Editor**: upstream Muya (`@muyajs/core`), no fork
+- **Server**: Node 24 running TypeScript directly (erasable syntax only: no enums, no parameter properties) + Hono
+- **Storage**: WebDAV via a stateless relay (`server/relay.ts`); credentials stay in the browser
+- **Testing**: Vitest (unit, round-trip), Playwright (Chromium, WebKit, iPad)
 
 ## Project Structure
 ```
-/client             # Client entry point
-/server             # Server entry point
-/imports
-  /api/server       # WebDAV methods and server-side logic
-  /ui               # React components (App, Editor, FileBrowser, etc.)
-/public             # Static assets
-/tests              # Test setup and fixtures
-  /fixtures/webdav  # Test WebDAV content
-/e2e                # Playwright E2E tests
+/src        Client (App, Editor, FileBrowser, Settings, useDocument, dav, store)
+/server     Hono server: access gate, WebDAV relay, static files
+/tests
+  /unit     Vitest tests
+  /e2e      Playwright tests + serve.ts (starts test WebDAV + app)
+  /fixtures/webdav  Test markdown files
+  webdav-server.ts  Minimal WebDAV server with real ETag/If-Match semantics
 ```
 
-## Key Components
-- **App.jsx**: Main application with routing and file loading
-- **MuyaEditor.jsx**: Muya WYSIWYG editor wrapper
-- **FileBrowser.jsx**: Tree view file browser with WebDAV integration
-- **webdav.js**: Server-side WebDAV methods (list, read, write)
-
-## Configuration
-WebDAV settings are stored in `settings.json` (or `settings-local.json` for dev):
-```json
-{
-  "webdav": {
-    "url": "https://your-server.com/remote.php/dav/files/username",
-    "username": "your-username",
-    "password": "your-password"
-  }
-}
-```
+## Non-negotiables
+- No per-keystroke work that grows with document size (no serialization on change).
+- Saves use `If-Match`; never overwrite a file that changed elsewhere.
+- Never rewrite a file the user didn't edit.
+- The relay must only reach public addresses (checked at connect time) and never follow redirects.
 
 ## Code Conventions
 
@@ -55,34 +39,22 @@ WebDAV settings are stored in `settings.json` (or `settings-local.json` for dev)
 - **Components**: PascalCase (e.g., `FileBrowser.jsx`)
 - **Methods**: Namespaced (e.g., `webdav.list`, `webdav.read`)
 
-### Meteor Patterns
+### Patterns
 - Use `async`/`await` for all async operations
-- Use `Meteor.callAsync()` for method calls from client
-- Settings via `Meteor.settings`
+- Server code must run under Node's type stripping (erasable TypeScript only)
 
 ## Development Workflow
 
 ### Running the App
 ```bash
-npm start          # Dev server on port 4000
+npm run dev        # Vite :4000 + server :4100
 ```
 
 ### Testing
 ```bash
-npm test           # Run all E2E tests (Playwright)
-npm run test:unit  # Run unit tests (Mocha)
+npm test           # Vitest unit + round-trip
+npm run test:e2e   # Playwright (starts test WebDAV :4081 and app :4101)
 ```
-
-The E2E test suite:
-- Automatically starts a Node.js WebDAV server on port 4080
-- Starts Meteor on port 4010 for test isolation
-- Runs 13 tests covering file browsing, editing, and saving
-- Cleans up all services after tests
-
-### Test Structure
-- Tests in `/e2e/*.spec.ts` (Playwright)
-- Test fixtures in `/tests/fixtures/webdav/`
-- Global setup/teardown in `/tests/global-setup.ts` and `/tests/global-teardown.ts`
 
 ### Red-Green Testing (Critical)
 When fixing bugs or adding features, **always verify the test fails before applying the fix**:
@@ -93,7 +65,7 @@ When fixing bugs or adding features, **always verify the test fails before apply
 **Why this matters:**
 - A test that passes both before and after a fix proves nothing
 - Tests must exercise the actual code path, not an artificial bypass
-- E2E tests should mimic real user behavior (e.g., use localStorage like Meteor does, not artificial cookie injection)
+- E2E tests should mimic real user behavior (e.g., authenticate through the real access-key flow, not injected cookies)
 
 **Anti-pattern example:**
 ```javascript
@@ -126,4 +98,4 @@ If you can't make the test fail first, the test is likely not testing what you t
 This file will evolve as the project grows and patterns emerge.
 
 ## References
-Use meteor-docs.txt as reference on Meteor development.
+The original Meteor implementation on `main` is the reference for iPad/IME fixes and UI behavior.

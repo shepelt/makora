@@ -1,41 +1,38 @@
 {
   "name": "makora",
   "private": true,
+  "type": "module",
   "scripts": {
-    "start": "dotenv -- meteor run --settings settings-local.json --port 4000",
-    "test": "npx playwright test",
-    "test:ui": "npx playwright test --ui",
-    "test:unit": "meteor test --once --driver-package meteortesting:mocha --settings settings-local.json",
-    "test:unit:watch": "meteor test --driver-package meteortesting:mocha --settings settings-local.json",
-    "visualize": "meteor --production --extra-packages bundle-visualizer",
-    "screenshot": "node scripts/screenshot.js",
-    "fetch-md": "node scripts/fetch-md.js"
+    "dev": "node --watch server/index.ts & vite",
+    "build": "vite build",
+    "start": "node server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "dependencies": {
-    "@babel/runtime": "^7.23.5",
-    "@heroicons/react": "^2.2.0",
-    "@muyajs/core": "file:../muya-fork/packages/core",
-    "@swc/helpers": "^0.5.17",
-    "marked": "^17.0.1",
-    "meteor-node-stubs": "^1.2.12",
+    "@hono/node-server": "^2.1.9",
+    "@muyajs/core": "^0.2.0",
+    "hono": "^4.13.19",
+    "idb-keyval": "^6.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.1",
-    "turndown": "^7.2.2",
-    "webdav": "^5.8.0"
+    "undici": "^8.12.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.57.0",
-    "@types/node": "^24.10.1",
-    "dotenv-cli": "^11.0.0",
-    "webdav-server": "^2.6.2"
-  },
-  "meteor": {
-    "mainModule": {
-      "client": "client/main.jsx",
-      "server": "server/main.js"
-    },
-    "testModule": "tests/main.js",
-    "modern": true
+    "@playwright/test": "^1.65.1",
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.3.0",
+    "happy-dom": "^21.0.4",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
   }
 }

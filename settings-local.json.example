@@ -1,9 +1,0 @@
-{
-  "public": {
-    "disableAuth": false
-  },
-  "google": {
-    "clientId": "your-google-client-id.apps.googleusercontent.com",
-    "secret": "your-google-client-secret"
-  }
-}

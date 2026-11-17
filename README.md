@@ -1,110 +1,37 @@
-# Makora
+# Makora (next)
 
-A WYSIWYG markdown editor with WebDAV backend support. Edit your markdown files stored on Nextcloud, ownCloud, or any WebDAV-compatible server with a clean, distraction-free interface.
+A fast, minimal Typora-style markdown editor for files on your own WebDAV server (Nextcloud, Synology, …). Built for iPad first, works on phones and desktop.
 
-## Features
+> This is the `next` branch: a fresh rewrite. The original Meteor app lives on `main` for reference. See #45 for the plan.
 
-- **WYSIWYG Editing**: Rich text editing powered by Muya
-- **WebDAV Integration**: Connect to any WebDAV server
-- **File Browser**: Tree view navigation with folder expansion
-- **Keyboard Shortcuts**: Familiar shortcuts for formatting and saving
-- **Live Preview**: See formatted content as you type
-- **Markdown Preservation**: Maintains markdown formatting on save
+## Principles
+- **Your files stay plain `.md` files** on your server. Untouched files are never rewritten; Makora keeps line endings, BOM and trailing newlines as they were.
+- **Never lose or clobber work.** Saves are conditional (`If-Match` ETag); if a file changed elsewhere (another device, Nextcloud, an AI tool), Makora asks instead of overwriting. Unsaved edits are kept on the device until the server confirms them. Auto-save after a short pause.
+- **Credentials stay in the browser.** The server is a stateless WebDAV relay (needed only because browsers can't call most WebDAV servers directly). It refuses private/loopback destinations at connect time and never follows redirects.
 
-## Quick Start
+## Stack
+- Client: Vite + React + TypeScript + Tailwind, editor: upstream [Muya](https://github.com/marktext/marktext/tree/develop/packages/muya) (`@muyajs/core`)
+- Server: Node 24 (runs TypeScript directly) + Hono
+- Tests: Vitest (unit, round-trip), Playwright (Chromium, WebKit, iPad)
 
-### Prerequisites
-- Node.js 18+
-- Meteor 3.x (`npm install -g meteor`)
-
-### Installation
-
+## Run
 ```bash
-git clone https://github.com/shepelt/makora.git
-cd makora
 npm install
+npm run build
+MAKORA_ACCESS_KEY=choose-a-key npm start     # http://localhost:4100/?key=choose-a-key
 ```
+Development: `npm run dev` (Vite on :4000, API on :4100). Local WebDAV for testing: `DAV_PREFIX=/remote.php/dav/files/test node tests/webdav-server.ts 4080` (user `test` / `test`; run the server with `MAKORA_ALLOW_PRIVATE=1` to reach it).
 
-### Configuration
+## Configuration
+| Variable | Meaning |
+|---|---|
+| `PORT` | Listen port (default 4100) |
+| `MAKORA_ACCESS_KEY` | Shared access key for the prototype (printed at startup if unset) |
+| `MAKORA_ALLOW_PRIVATE` | `1` allows private/loopback WebDAV targets. **Tests only.** |
 
-Create a `settings-local.json` file with your WebDAV credentials:
-
-```json
-{
-  "webdav": {
-    "url": "https://your-server.com/remote.php/dav/files/username",
-    "username": "your-username",
-    "password": "your-password"
-  }
-}
-```
-
-See `settings-local.json.example` for reference.
-
-### Running
-
+## Test
 ```bash
-npm start
+npm test            # unit + markdown round-trip
+npm run test:e2e    # Playwright: Chromium, WebKit, iPad
+ROUNDTRIP_DIR=~/notes npm test -- roundtrip   # check your own files round-trip
 ```
-
-Open http://localhost:4000 in your browser.
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| Cmd/Ctrl + S | Save file |
-| Cmd/Ctrl + B | Bold |
-| Cmd/Ctrl + I | Italic |
-| Cmd/Ctrl + 1-6 | Heading 1-6 |
-| Cmd/Ctrl + 0 | Paragraph |
-| Cmd/Ctrl + Shift + Q | Blockquote |
-| Cmd/Ctrl + Shift + K | Code block |
-| Cmd/Ctrl + Shift + O | Ordered list |
-| Cmd/Ctrl + Shift + U | Bullet list |
-
-## Testing
-
-Run the full E2E test suite:
-
-```bash
-npm test
-```
-
-This automatically:
-- Starts a test WebDAV server
-- Launches the app on a test port
-- Runs Playwright tests
-- Cleans up after completion
-
-Run unit tests:
-
-```bash
-npm run test:unit
-```
-
-## Tech Stack
-
-- **Meteor.js 3.x** - Full-stack framework
-- **React 18** - UI components
-- **Muya** - WYSIWYG markdown editor
-- **Tailwind CSS** - Styling
-- **Playwright** - E2E testing
-
-## Project Structure
-
-```
-makora/
-├── client/          # Client entry point
-├── server/          # Server entry point
-├── imports/
-│   ├── api/server/  # WebDAV methods
-│   └── ui/          # React components
-├── tests/           # Test setup & fixtures
-├── e2e/             # Playwright tests
-└── public/          # Static assets
-```
-
-## License
-
-MIT
