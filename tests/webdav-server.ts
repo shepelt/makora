@@ -19,6 +19,18 @@ function etagOf(full: string): string {
   return '"' + createHash('sha1').update(readFileSync(full)).digest('hex').slice(0, 20) + '"';
 }
 
+const TYPES: Record<string, string> = {
+  md: 'text/markdown; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  html: 'text/html',
+};
+const typeOf = (p: string) => TYPES[p.split('.').pop()!.toLowerCase()] ?? 'application/octet-stream';
+
 function xmlEscape(s: string) {
   return s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[c]!);
 }
@@ -99,7 +111,7 @@ ${isDir ? '' : `<d:getcontentlength>${st.size}</d:getcontentlength>`}
         // matches If-Match. We only emulate the ETag change, not the gzip.
         const gz = opts.apacheGzipEtags && /gzip/.test(String(req.headers['accept-encoding'] ?? ''));
         const etag = gz ? etagOf(full).replace(/"$/, '-gzip"') : etagOf(full);
-        res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', ETag: etag, 'Content-Length': String(body.length) });
+        res.writeHead(200, { 'Content-Type': typeOf(full), ETag: etag, 'Content-Length': String(body.length) });
         return res.end(method === 'HEAD' ? undefined : body);
       }
       case 'PUT': {

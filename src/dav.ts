@@ -192,3 +192,17 @@ export async function mkcol(cfg: DavConfig, path: string): Promise<void> {
   if (res.status === 405) throw new DavError(405, 'A file or folder with that name already exists');
   if (!res.ok) throw new DavError(res.status, `Could not create folder (HTTP ${res.status})`);
 }
+
+// Seal credentials into an HttpOnly cookie so <img> requests can be relayed.
+export async function sealCredentials(cfg: DavConfig): Promise<void> {
+  await fetch('/api/seal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: cfg.url, username: cfg.username, password: cfg.password }),
+    credentials: 'same-origin',
+  }).catch(() => undefined);
+}
+
+export async function unsealCredentials(): Promise<void> {
+  await fetch('/api/unseal', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
+}

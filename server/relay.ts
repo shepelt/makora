@@ -158,6 +158,37 @@ const anyAgent = new Agent({ connect: { timeout: CONNECT_TIMEOUT_MS } });
 
 // --- relay ------------------------------------------------------------------
 
+async function upstreamFetch(
+  target: URL,
+  method: string,
+  headers: Record<string, string>,
+  body: ArrayBuffer | undefined,
+  opts: RelayOptions,
+) {
+  let upstream: Awaited<ReturnType<typeof undiciFetch>>;
+  try {
+    upstream = await undiciFetch(target, {
+      method,
+      headers,
+      body,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      dispatcher: opts.allowPrivate ? anyAgent : publicAgent,
+    });
+  } catch (err: any) {
+    const code = err?.cause?.code || err?.code;
+    if (code === 'EDESTINATION') throw new RelayError(403, 'Destination not allowed');
+    if (err?.name === 'TimeoutError' || code === 'UND_ERR_CONNECT_TIMEOUT') {
+      throw new RelayError(504, 'WebDAV server did not respond');
+    }
+    throw new RelayError(502, `Could not reach WebDAV server (${code || err?.message || 'error'})`);
+  }
+  if (upstream.status >= 300 && upstream.status < 400) {
+    throw new RelayError(502, 'WebDAV server redirected; use the final URL in settings');
+  }
+  return upstream;
+}
+
 export async function relay(req: Request, davPath: string, opts: RelayOptions = {}): Promise<Response> {
   const method = req.method.toUpperCase();
   if (!ALLOWED_METHODS.has(method)) throw new RelayError(405, 'Method not allowed');
@@ -190,28 +221,7 @@ export async function relay(req: Request, davPath: string, opts: RelayOptions = 
     if (body.byteLength > MAX_BODY_BYTES) throw new RelayError(413, 'Body too large');
   }
 
-  let upstream: Awaited<ReturnType<typeof undiciFetch>>;
-  try {
-    upstream = await undiciFetch(target, {
-      method,
-      headers: Object.fromEntries(headers),
-      body,
-      redirect: 'manual',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      dispatcher: opts.allowPrivate ? anyAgent : publicAgent,
-    });
-  } catch (err: any) {
-    const code = err?.cause?.code || err?.code;
-    if (code === 'EDESTINATION') throw new RelayError(403, 'Destination not allowed');
-    if (err?.name === 'TimeoutError' || code === 'UND_ERR_CONNECT_TIMEOUT') {
-      throw new RelayError(504, 'WebDAV server did not respond');
-    }
-    throw new RelayError(502, `Could not reach WebDAV server (${code || err?.message || 'error'})`);
-  }
-
-  if (upstream.status >= 300 && upstream.status < 400) {
-    throw new RelayError(502, 'WebDAV server redirected; use the final URL in settings');
-  }
+  const upstream = await upstreamFetch(target, method, Object.fromEntries(headers), body, opts);
 
   const out = new Headers();
   for (const name of FORWARD_RESPONSE_HEADERS) {
@@ -224,4 +234,69 @@ export async function relay(req: Request, davPath: string, opts: RelayOptions = 
     status: upstream.status,
     headers: out,
   });
+}
+
+// --- images ---------------------------------------------------------------
+// <img> can't send headers, so images use sealed credentials from a cookie
+// (see seal.ts). Only image types are served, inside a sandbox CSP, so a file
+// on the WebDAV server can never run as script on Makora's origin.
+
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+};
+const ALLOWED_IMAGE_TYPES = new Set(Object.values(IMAGE_TYPES));
+
+export function imageTypeFor(path: string, upstreamType: string | null): string | null {
+  const t = (upstreamType || '').split(';')[0].trim().toLowerCase();
+  if (ALLOWED_IMAGE_TYPES.has(t)) return t;
+  // Some servers label everything application/octet-stream; trust a known
+  // image extension in that case only.
+  if (!t || t === 'application/octet-stream' || t === 'binary/octet-stream') {
+    const ext = decodeURIComponent(path).split('.').pop()?.toLowerCase() ?? '';
+    return IMAGE_TYPES[ext] ?? null;
+  }
+  return null;
+}
+
+export async function relayImage(
+  creds: { url: string; username: string; password: string },
+  davPath: string,
+  opts: RelayOptions = {},
+): Promise<Response> {
+  const base = parseTarget(creds.url, opts);
+  const target = joinTarget(base, davPath);
+  const auth = 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`).toString('base64');
+  const upstream = await upstreamFetch(target, 'GET', { authorization: auth, 'accept-encoding': 'identity' }, undefined, opts);
+  const headers = new Headers({
+    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    'x-content-type-options': 'nosniff',
+  });
+  if (!upstream.ok) {
+    await upstream.body?.cancel();
+    headers.set('cache-control', 'no-store');
+    return new Response(null, { status: upstream.status === 401 ? 401 : upstream.status === 404 ? 404 : 502, headers });
+  }
+  const type = imageTypeFor(davPath, upstream.headers.get('content-type'));
+  if (!type) {
+    await upstream.body?.cancel();
+    throw new RelayError(415, 'Not an image');
+  }
+  const len = Number(upstream.headers.get('content-length') || 0);
+  if (len > MAX_BODY_BYTES) {
+    await upstream.body?.cancel();
+    throw new RelayError(413, 'Image too large');
+  }
+  headers.set('content-type', type);
+  headers.set('cache-control', 'private, max-age=300');
+  const etag = upstream.headers.get('etag');
+  if (etag) headers.set('etag', etag);
+  return new Response(upstream.body as any, { status: 200, headers });
 }

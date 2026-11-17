@@ -7,7 +7,7 @@ A fast, minimal Typora-style markdown editor for files on your own WebDAV server
 ## Principles
 - **Your files stay plain `.md` files** on your server. Untouched files are never rewritten; Makora keeps line endings, BOM and trailing newlines as they were.
 - **Never lose or clobber work.** Saves are conditional (`If-Match` ETag); if a file changed elsewhere (another device, Nextcloud, an AI tool), Makora asks instead of overwriting. Unsaved edits are kept on the device until the server confirms them. Auto-save after a short pause.
-- **Credentials stay in the browser.** The server is a stateless WebDAV relay (needed only because browsers can't call most WebDAV servers directly). It refuses private/loopback destinations at connect time and never follows redirects.
+- **Credentials stay in the browser.** Images use the same credentials sealed (AES-GCM) into an HttpOnly cookie, since `<img>` can't send headers; only image types are served, under a sandbox CSP. The server is a stateless WebDAV relay (needed only because browsers can't call most WebDAV servers directly). It refuses private/loopback destinations at connect time and never follows redirects.
 
 ## Stack
 - Client: Vite + React + TypeScript + Tailwind, editor: upstream [Muya](https://github.com/marktext/marktext/tree/develop/packages/muya) (`@muyajs/core`)
@@ -27,6 +27,7 @@ Development: `npm run dev` (Vite on :4000, API on :4100). Local WebDAV for testi
 |---|---|
 | `PORT` | Listen port (default 4100) |
 | `MAKORA_ACCESS_KEY` | Shared access key for the prototype (printed at startup if unset) |
+| `MAKORA_SECRET` | Key for sealing credentials into the image cookie. Set it so seals survive restarts (random per process otherwise) |
 | `MAKORA_ALLOW_PRIVATE` | `1` allows private/loopback WebDAV targets. **Tests only.** |
 
 ## Test

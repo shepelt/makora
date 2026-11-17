@@ -3,8 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
-import { getCookie, setCookie } from 'hono/cookie';
-import { relay, RelayError } from './relay.ts';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { parseTarget, relay, relayImage, RelayError } from './relay.ts';
+import { seal, SEAL_COOKIE, SEAL_MAX_AGE, unseal } from './seal.ts';
 
 const PORT = Number(process.env.PORT || 4100);
 const ALLOW_PRIVATE = process.env.MAKORA_ALLOW_PRIVATE === '1';
@@ -106,6 +107,60 @@ app.use('*', async (c, next) => {
   if (url.pathname.startsWith('/api/')) return c.json({ error: 'Not authorized' }, 401);
   // The host's health probe hits GET /; answer without side effects.
   return c.html(LOCKED_PAGE(), 401);
+});
+
+function sameOrigin(c: any): boolean {
+  const origin = c.req.header('origin');
+  const host = c.req.header('x-forwarded-host') || c.req.header('host');
+  try {
+    return !!origin && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+// Seal the browser's WebDAV credentials into an HttpOnly cookie for <img>.
+app.post('/api/seal', async (c) => {
+  if (!sameOrigin(c)) return c.json({ error: 'Bad origin' }, 403);
+  const body = await c.req.json().catch(() => null);
+  const { url, username, password } = body ?? {};
+  if (typeof url !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
+    return c.json({ error: 'url, username, password required' }, 400);
+  }
+  try {
+    parseTarget(url, { allowPrivate: ALLOW_PRIVATE });
+  } catch (err) {
+    if (err instanceof RelayError) return c.json({ error: err.message }, err.status as any);
+    throw err;
+  }
+  const https = c.req.header('x-forwarded-proto') === 'https' || c.req.url.startsWith('https:');
+  setCookie(c, SEAL_COOKIE, seal({ url, username, password }), {
+    httpOnly: true,
+    secure: https,
+    sameSite: 'Strict',
+    path: '/api/img',
+    maxAge: SEAL_MAX_AGE,
+  });
+  return c.json({ ok: true });
+});
+
+app.post('/api/unseal', (c) => {
+  if (!sameOrigin(c)) return c.json({ error: 'Bad origin' }, 403);
+  deleteCookie(c, SEAL_COOKIE, { path: '/api/img' });
+  return c.json({ ok: true });
+});
+
+app.get('/api/img/*', async (c) => {
+  const creds = unseal(getCookie(c, SEAL_COOKIE));
+  if (!creds) return c.body(null, 401);
+  const davPath = new URL(c.req.url).pathname.slice('/api/img'.length) || '/';
+  try {
+    return await relayImage(creds, davPath, { allowPrivate: ALLOW_PRIVATE });
+  } catch (err) {
+    if (err instanceof RelayError) return c.body(null, err.status as any);
+    console.error('image relay error', err);
+    return c.body(null, 500);
+  }
 });
 
 app.all('/api/dav/*', async (c) => {

@@ -2,6 +2,7 @@
 // document handling (safe saves, drafts, conflicts) is new (useDocument).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { sealCredentials, unsealCredentials } from './dav';
 import type { DavConfig } from './dav';
 import { Editor } from './Editor';
 import type { EditorHandle } from './Editor';
@@ -216,10 +217,18 @@ export function App() {
   const { doc, open, close, save, onEdit, onEditorReady, resolveConflict, discardStaleDraft, saveStaleDraftAsCopy } = useDocument(cfg, editorRef);
   const basePath = cfg ? prefs.basePath(cfg) : '/';
 
-  // Restore the last open file.
+  // Seal credentials for image requests (also after a server restart), then
+  // restore the last open file so its images can load.
   useEffect(() => {
-    const last = lastFile.get();
-    if (cfg && last && prefs.rememberLastFile()) void open(last);
+    if (!cfg) return;
+    let cancelled = false;
+    void sealCredentials(cfg).then(() => {
+      const last = lastFile.get();
+      if (!cancelled && last && prefs.rememberLastFile()) void open(last);
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg]);
 
@@ -249,6 +258,7 @@ export function App() {
   }, [save]);
 
   const disconnect = () => {
+    void unsealCredentials();
     saveConfig(null);
     lastFile.set(null);
     close();
@@ -379,6 +389,7 @@ export function App() {
                           onReady={onEditorReady}
                           onBlockChange={setBlockInfo}
                           preventAutoFocus={isMobile}
+                          docPath={doc.path}
                         />
                       )}
                     </div>

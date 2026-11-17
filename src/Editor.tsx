@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { CodeBlockLanguageSelector, InlineFormatToolbar, Muya } from '@muyajs/core';
 import '@muyajs/core/lib/core.css';
 import { patchMuyaPerformance } from './muyaPatches';
+import { patchImageLoading } from './images';
 import * as cmd from './blockCommands';
 import type { BlockInfo } from './blockCommands';
 
@@ -31,10 +32,11 @@ type Props = {
   onReady?: () => void;
   onBlockChange?: (info: BlockInfo) => void;
   preventAutoFocus?: boolean;
+  docPath: string; // WebDAV path of the note, for resolving relative images
 };
 
 export const Editor = forwardRef<EditorHandle, Props>(function Editor(
-  { markdown, onChange, onReady, onBlockChange, preventAutoFocus },
+  { markdown, onChange, onReady, onBlockChange, preventAutoFocus, docPath },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -59,6 +61,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       autoPairMarkdownSyntax: false,
     });
     patchMuyaPerformance(muya);
+    patchImageLoading(muya, docPath);
     muya.init();
     performance.mark('muya:init');
     muyaRef.current = muya;
