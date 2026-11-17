@@ -67,3 +67,21 @@ function patchStateChange(muya: Muya) {
   };
 }
 
+
+// Third fix: Enter at the start of an ATX heading inserts a paragraph above
+// but doesn't preventDefault, so the browser also splits the contenteditable
+// and the heading text gets duplicated (main #27; upstream marktext/muya#240,
+// merged after 0.2.0 was published).
+let headingEnterPatched = false;
+export function patchHeadingEnter(muya: Muya) {
+  if (headingEnterPatched) return;
+  const ScrollPage = (muya.editor as any).scrollPage?.constructor;
+  const Heading = ScrollPage?.loadBlock?.('atxheading.content');
+  const original = Heading?.prototype?.enterHandler;
+  if (typeof original !== 'function') return;
+  headingEnterPatched = true;
+  Heading.prototype.enterHandler = function (this: any, event: Event) {
+    event.preventDefault();
+    return original.call(this, event);
+  };
+}

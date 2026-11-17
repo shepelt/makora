@@ -90,3 +90,20 @@ test('context menu: new folder, rename and delete', async ({ page }, info) => {
   await expect(nav.getByTitle(renamed, { exact: true })).toHaveCount(0);
   expect(existsSync(join(DAV_DIR, renamed))).toBe(false);
 });
+
+test('Enter at the start of a heading, then Up, does not duplicate the heading (#27 on main)', async ({ page }, info) => {
+  const name = fresh(info.project.name, '# Work Log\n\n### 2025/12/30\n\n- KB meeting\n');
+  await openFresh(page, name);
+  // Click at the very start of the heading text (where the ### marker shows).
+  await page.locator('.mu-content', { hasText: '2025/12/30' }).first().click({ position: { x: 1, y: 10 } });
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.makora-editor .mu-content', { hasText: '2025/12/30' })).toHaveCount(1);
+  // Exactly one new empty paragraph above the heading.
+  await expect(page.locator('.makora-editor .mu-content')).toHaveText(['Work Log', '', '### 2025/12/30', 'KB meeting'].map((t) => (t === 'Work Log' ? '# Work Log' : t)));
+  await page.keyboard.type('new line');
+  await page.keyboard.press(`${MOD}+s`);
+  await expect.poll(() => disk(name), { timeout: 10_000 }).toContain('new line');
+  expect(disk(name).match(/2025\/12\/30/g)).toHaveLength(1);
+  expect(disk(name)).toContain('### 2025/12/30');
+});

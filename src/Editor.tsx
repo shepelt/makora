@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { CodeBlockLanguageSelector, InlineFormatToolbar, Muya } from '@muyajs/core';
 import '@muyajs/core/lib/core.css';
-import { patchMuyaPerformance } from './muyaPatches';
+import { patchHeadingEnter, patchMuyaPerformance } from './muyaPatches';
 import { patchImageLoading } from './images';
 import * as cmd from './blockCommands';
 import type { BlockInfo } from './blockCommands';
@@ -63,6 +63,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     patchMuyaPerformance(muya);
     patchImageLoading(muya, docPath);
     muya.init();
+    patchHeadingEnter(muya);
     performance.mark('muya:init');
     muyaRef.current = muya;
 
