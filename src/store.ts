@@ -44,15 +44,20 @@ export const lastFile = {
   set: (p: string | null) => safeSet(LAST_FILE_KEY, p),
 };
 
+// Expanded folders, remembered per server so switching servers starts clean.
 export const openDirs = {
-  get: (): string[] => {
+  key: (cfg: DavConfig) => `${OPEN_DIRS_KEY}:${cfg.url}|${cfg.username}`,
+  get: (cfg: DavConfig): string[] => {
     try {
-      return JSON.parse(safeGet(OPEN_DIRS_KEY) || '[]');
+      return JSON.parse(safeGet(openDirs.key(cfg)) || '[]');
     } catch {
       return [];
     }
   },
-  set: (dirs: string[]) => safeSet(OPEN_DIRS_KEY, JSON.stringify(dirs)),
+  set: (cfg: DavConfig, dirs: string[]) => {
+    safeSet(openDirs.key(cfg), JSON.stringify(dirs));
+    safeSet(OPEN_DIRS_KEY, null); // drop the old unscoped key
+  },
 };
 
 // --- drafts ------------------------------------------------------------------

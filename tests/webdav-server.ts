@@ -114,7 +114,6 @@ ${isDir ? '' : `<d:getcontentlength>${st.size}</d:getcontentlength>`}
         const parts = [propResponse(full)];
         if (statSync(full).isDirectory() && depth !== '0') {
           for (const name of readdirSync(full)) {
-            if (name.startsWith('.')) continue;
             parts.push(propResponse(join(full, name)));
           }
         }

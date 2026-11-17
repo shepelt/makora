@@ -137,3 +137,21 @@ test('reference-style links render and update', async ({ page }, info) => {
   await openFile(page, name);
   await expect(page.locator('.makora-editor a[href="https://example.com"]').first()).toBeAttached();
 });
+
+test('a remembered folder that no longer exists is dropped silently; dot-folders are hidden', async ({ page }) => {
+  await page.goto(`/?key=${KEY}`);
+  await page.evaluate((url) => {
+    // Per-server key, plus the old unscoped key from earlier versions.
+    localStorage.setItem(`makora:openDirs:${url}|test`, JSON.stringify(['/Gone', '/AFolder']));
+    localStorage.setItem('makora:openDirs', JSON.stringify(['/AlsoGone']));
+  }, DAV_URL);
+  await connect(page);
+  const nav = page.getByRole('navigation', { name: 'Files' });
+  await expect(nav.getByTitle('AFolder', { exact: true })).toBeVisible();
+  // The missing folder is forgotten (deterministic, unlike the old racy error banner).
+  await expect
+    .poll(() => page.evaluate(() => Object.entries(localStorage).filter(([k]) => k.startsWith('makora:openDirs')).map(([, v]) => v).join()))
+    .not.toContain('Gone');
+  await expect(page.getByText(/Could not list folder/)).toHaveCount(0);
+  await expect(nav.getByTitle('.sync', { exact: true })).toHaveCount(0);
+});

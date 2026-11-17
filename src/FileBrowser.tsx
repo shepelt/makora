@@ -4,6 +4,7 @@ import type { DavConfig, DavEntry } from './dav';
 import { openDirs } from './store';
 
 const TEXT_FILE = /\.(md|markdown|mdown|txt)$/i;
+const visibleEntry = (e: DavEntry) => !e.name.startsWith('.') && (e.isDir || TEXT_FILE.test(e.name));
 
 type Sort = 'name' | 'recent';
 
@@ -24,9 +25,29 @@ function sortEntries(entries: DavEntry[], sort: Sort): DavEntry[] {
 
 export function FileBrowser({ cfg, selected, onOpen, refreshKey }: Props) {
   const [children, setChildren] = useState<Record<string, DavEntry[]>>({});
-  const [open, setOpen] = useState<Set<string>>(() => new Set(['/', ...openDirs.get()]));
+  const [open, setOpen] = useState<Set<string>>(() => {
+    try {
+      localStorage.removeItem('makora:openDirs'); // pre-per-server key
+    } catch {
+      /* ignore */
+    }
+    return new Set(['/', ...openDirs.get(cfg)]);
+  });
   const [loading, setLoading] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  // Errors are per folder, shown under the folder they belong to.
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const forget = useCallback(
+    (dir: string) => {
+      setOpen((s) => {
+        const n = new Set(s);
+        n.delete(dir);
+        openDirs.set(cfg, [...n].filter((d) => d !== '/'));
+        return n;
+      });
+    },
+    [cfg],
+  );
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem('makora:sort') as Sort) || 'name');
 
   const load = useCallback(
@@ -34,11 +55,15 @@ export function FileBrowser({ cfg, selected, onOpen, refreshKey }: Props) {
       setLoading((s) => new Set(s).add(dir));
       try {
         const entries = await list(cfg, dir);
-        const visible = entries.filter((e) => e.isDir || TEXT_FILE.test(e.name));
-        setChildren((c) => ({ ...c, [dir]: visible }));
-        setError(null);
+        setChildren((c) => ({ ...c, [dir]: entries.filter(visibleEntry) }));
+        setErrors(({ [dir]: _, ...rest }) => rest);
       } catch (err: any) {
-        setError(err?.message || String(err));
+        if (err?.status === 404 && dir !== '/') {
+          // A remembered folder that no longer exists: forget it quietly.
+          forget(dir);
+        } else {
+          setErrors((e) => ({ ...e, [dir]: err?.message || String(err) }));
+        }
       } finally {
         setLoading((s) => {
           const n = new Set(s);
@@ -47,11 +72,12 @@ export function FileBrowser({ cfg, selected, onOpen, refreshKey }: Props) {
         });
       }
     },
-    [cfg],
+    [cfg, forget],
   );
 
   useEffect(() => {
     setChildren({});
+    setErrors({});
     for (const dir of open) void load(dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg, refreshKey]);
@@ -64,7 +90,7 @@ export function FileBrowser({ cfg, selected, onOpen, refreshKey }: Props) {
         n.add(dir);
         if (!children[dir]) void load(dir);
       }
-      openDirs.set([...n].filter((d) => d !== '/'));
+      openDirs.set(cfg, [...n].filter((d) => d !== '/'));
       return n;
     });
   };
@@ -95,6 +121,16 @@ export function FileBrowser({ cfg, selected, onOpen, refreshKey }: Props) {
 
   const renderDir = (dir: string, depth: number): React.ReactNode => {
     const entries = children[dir];
+    if (errors[dir]) {
+      return (
+        <div className="px-3 py-1 text-xs text-red-700" style={{ paddingLeft: 12 + depth * 14 }}>
+          {errors[dir]}{' '}
+          <button className="underline" onClick={() => void load(dir)}>
+            Retry
+          </button>
+        </div>
+      );
+    }
     if (!entries) {
       return loading.has(dir) ? <div className="px-3 py-1 text-xs text-stone-400" style={{ paddingLeft: 12 + depth * 14 }}>Loading…</div> : null;
     }
@@ -158,7 +194,6 @@ export function FileBrowser({ cfg, selected, onOpen, refreshKey }: Props) {
           Refresh
         </button>
       </div>
-      {error && <div className="mx-3 mb-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">{error}</div>}
       <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-6" aria-label="Files">
         {renderDir('/', 0)}
       </nav>
