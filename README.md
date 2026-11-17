@@ -10,7 +10,7 @@ A fast, minimal Typora-style markdown editor for files on your own WebDAV server
 - **Credentials stay in the browser.** Images use the same credentials sealed (AES-GCM) into an HttpOnly cookie, since `<img>` can't send headers; only image types are served, under a sandbox CSP. The server is a stateless WebDAV relay (needed only because browsers can't call most WebDAV servers directly). It refuses private/loopback destinations at connect time and never follows redirects.
 
 ## Stack
-- Client: Vite + React + TypeScript + Tailwind, editor: upstream [Muya](https://github.com/marktext/marktext/tree/develop/packages/muya) (`@muyajs/core`)
+- Client: Vite + React + TypeScript + Tailwind v3, editor: upstream [Muya](https://github.com/marktext/marktext/tree/develop/packages/muya) `develop`, pinned and vendored (see `vendor/README.md`)
 - Server: Node 24 (runs TypeScript directly) + Hono
 - Tests: Vitest (unit, round-trip), Playwright (Chromium, WebKit, iPad)
 

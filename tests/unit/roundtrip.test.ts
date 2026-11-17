@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Muya } from '@muyajs/core';
 import { fromEditor, shapeOf, toEditor } from '../../src/useDocument.ts';
-import { patchMuyaPerformance } from '../../src/muyaPatches.ts';
 
 const FIXTURES = join(process.cwd(), 'tests/fixtures/webdav');
 const CORPUS = process.env.ROUNDTRIP_DIR || FIXTURES;
@@ -23,7 +22,6 @@ function roundTrip(text: string): string {
   const el = document.createElement('div');
   document.body.appendChild(el);
   const muya = new Muya(el, { markdown: toEditor(text), preferLooseListItem: false, hideQuickInsertHint: true });
-  patchMuyaPerformance(muya);
   muya.init();
   const md = muya.getMarkdown();
   muya.destroy();
@@ -34,7 +32,7 @@ function roundTrip(text: string): string {
 // failure if upstream stops normalizing, so we notice and can drop the entry.
 const KNOWN: Record<string, string> = {
   'large-test.md': 'table delimiter row re-padded: |----| -> | -- |',
-  'test2.md': 'empty list item gains a trailing space',
+  'nested-list.md': 'empty list item loses its trailing space',
 };
 
 describe('markdown round-trip', () => {

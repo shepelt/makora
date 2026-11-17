@@ -29,15 +29,17 @@ export function resolveImageSrc(src: string, docPath: string): string | null {
 }
 
 // Route Muya's image loading through the relay for this editor instance.
+// Muya builds a fresh Renderer per render call, but they all share one image
+// resource cache; mapping sources there covers every render. A loaded image
+// resolves to the mapped URL, which is what the rendered <img> points at.
 export function patchImageLoading(muya: Muya, docPath: string) {
-  const renderer: any = (muya.editor as any).inlineRenderer?.renderer;
-  if (!renderer || typeof renderer.loadImageAsync !== 'function' || !(renderer.urlMap instanceof Map)) return;
-  const original = renderer.loadImageAsync;
-  renderer.loadImageAsync = function (info: { src: string; isUnknownType: boolean }, ...rest: unknown[]) {
-    const mapped = info?.src ? resolveImageSrc(info.src, docPath) : null;
-    if (!mapped) return original.call(this, info, ...rest);
-    // urlMap makes the rendered <img> use the mapped URL instead of file://.
-    this.urlMap.set(info.src, mapped);
-    return original.call(this, { src: mapped, isUnknownType: false }, ...rest);
+  const images: any = (muya.editor as any).inlineEngine?.renderer?.images;
+  if (!images || typeof images.request !== 'function' || typeof images.get !== 'function') return;
+  const map = (src: string) => (src && resolveImageSrc(src, docPath)) || src;
+  const { get, request } = images;
+  images.get = (src: string) => get.call(images, map(src));
+  images.request = (src: string, detectContentType: boolean) => {
+    const mapped = map(src);
+    return request.call(images, mapped, mapped === src ? detectContentType : false);
   };
 }

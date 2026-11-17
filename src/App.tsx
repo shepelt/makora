@@ -312,7 +312,12 @@ export function App() {
                           markdown={doc.initialMarkdown}
                           onChange={onEdit}
                           onReady={onEditorReady}
-                          onBlockChange={setBlockInfo}
+                          onBlockChange={(next) =>
+                            // Only re-render when the block type changes, not on every keystroke.
+                            setBlockInfo((prev) =>
+                              prev.headingLevel === next.headingLevel && prev.listType === next.listType ? prev : next,
+                            )
+                          }
                           preventAutoFocus={isMobile}
                           docPath={doc.path}
                         />

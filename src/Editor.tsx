@@ -1,7 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { CodeBlockLanguageSelector, InlineFormatToolbar, Muya } from '@muyajs/core';
 import '@muyajs/core/lib/core.css';
-import { patchHeadingEnter, patchMuyaPerformance } from './muyaPatches';
 import { patchImageLoading } from './images';
 import * as cmd from './blockCommands';
 import type { BlockInfo } from './blockCommands';
@@ -60,10 +59,8 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       spellcheckEnabled: false,
       autoPairMarkdownSyntax: false,
     });
-    patchMuyaPerformance(muya);
     patchImageLoading(muya, docPath);
     muya.init();
-    patchHeadingEnter(muya);
     performance.mark('muya:init');
     muyaRef.current = muya;
 
@@ -85,15 +82,6 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     const onKeyDown = (e: KeyboardEvent) => {
       if (!host.contains(e.target as Node)) return;
       const mod = e.metaKey || e.ctrlKey;
-      // Tab / Shift+Tab: indent list items without losing focus (#34 on main).
-      if (e.key === 'Tab') {
-        const block: any = (muya.editor as any).selection.getSelection()?.anchorBlock;
-        if (block && typeof block.tabHandler === 'function') {
-          e.preventDefault();
-          block.tabHandler(e);
-        }
-        return;
-      }
       if (!mod || e.altKey) return;
       // Typora-style block shortcuts, as on main.
       if (!e.shiftKey && /^[0-6]$/.test(e.key)) {
@@ -140,19 +128,9 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     async getMarkdown() {
       const muya = muyaRef.current;
       if (!muya) return markdown;
-      // iOS keeps text in the composition buffer until it's committed; make
-      // sure the active block's model matches what's on screen before saving.
-      const block: any = (muya.editor as any).activeContentBlock;
-      if (block?.domNode && block.isComposed === false) {
-        const domText = block.domNode.textContent ?? '';
-        if (block.text !== domText) block.text = domText;
-      }
-      // Let Muya apply its batched operations (flushed on the next frame).
-      const state: any = (muya.editor as any).jsonState;
-      for (let i = 0; i < 5 && (i < 2 || state?._isGoing); i++) {
-        await new Promise((r) => requestAnimationFrame(() => r(null)));
-      }
-      return muyaRef.current ? muya.getMarkdown() : markdown;
+      // Apply queued edits (incl. a same-frame keystroke) before reading.
+      muya.flush();
+      return muya.getMarkdown();
     },
     focus() {
       muyaRef.current?.focus();

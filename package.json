@@ -16,7 +16,7 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@hono/node-server": "^2.1.9",
-    "@muyajs/core": "0.2.0",
+    "@muyajs/core": "file:vendor/muyajs-core-e4ed4cf.tgz",
     "diff": "^9.0.0",
     "hono": "^4.13.19",
     "idb-keyval": "^6.3.0",

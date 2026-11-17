@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { muyaUnicodeKeys } from './muya-unicode-keys';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [muyaUnicodeKeys(), react()],
   server: {
     port: 4000,
     proxy: { '/api': 'http://localhost:4100', '/login': 'http://localhost:4100' },
@@ -11,5 +12,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/unit/**/*.test.ts'],
+    // Muya's build imports CSS/font/image assets; let Vite process it.
+    server: { deps: { inline: [/@muyajs\/core/] } },
   },
 });
