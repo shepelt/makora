@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { CodeBlockLanguageSelector, InlineFormatToolbar, Muya } from '@muyajs/core';
 import '@muyajs/core/lib/core.css';
 import { patchImageLoading } from './images';
+import { revealCaret } from './revealCaret';
 import * as cmd from './blockCommands';
 import type { BlockInfo } from './blockCommands';
 
@@ -69,7 +70,19 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       requestAnimationFrame(() => (document.activeElement as HTMLElement | null)?.blur?.());
     }
 
-    const notifyBlock = () => onBlockChangeRef.current?.(cmd.getBlockInfo(muya));
+    let revealQueued = false;
+    const queueReveal = () => {
+      if (revealQueued) return;
+      revealQueued = true;
+      requestAnimationFrame(() => {
+        revealQueued = false;
+        revealCaret(host);
+      });
+    };
+    const notifyBlock = () => {
+      onBlockChangeRef.current?.(cmd.getBlockInfo(muya));
+      queueReveal();
+    };
 
     // `json-change` also fires for the initial render; only count user edits.
     const handler = ({ source }: { source?: string }) => {
@@ -112,7 +125,28 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       onReady?.();
     });
 
+    // content-visibility skips off-screen blocks and guesses their height
+    // until they're drawn once, which leaves the scrollbar far off on long
+    // files. After first paint, draw everything once while idle so the
+    // browser remembers real heights (contain-intrinsic-size: auto).
+    let measureCancelled = false;
+    const measure = () => {
+      if (measureCancelled) return;
+      host.classList.add('cv-measure');
+      void host.offsetHeight; // force layout with all blocks rendered
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          host.classList.remove('cv-measure');
+        }),
+      );
+    };
+    const ric: (cb: () => void) => void = (window as any).requestIdleCallback
+      ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 1500 })
+      : (cb) => setTimeout(cb, 300);
+    requestAnimationFrame(() => ric(measure));
+
     return () => {
+      measureCancelled = true;
       host.removeEventListener('keydown', onKeyDown, true);
       muya.off('json-change', handler);
       muya.off('selection-change', notifyBlock);

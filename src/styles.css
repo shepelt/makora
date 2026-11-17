@@ -88,15 +88,8 @@ button, a, input {
   padding: 0;
 }
 
-/* ---- New in next: skip layout/paint of off-screen top-level blocks ---- */
-.makora-editor .mu-container > * {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 1.8em;
-}
-
-/* List indentation as on main (~30px, Typora-like). Also keeps bullet
-   markers inside the block box, which content-visibility would otherwise
-   clip (it implies paint containment). */
+/* List indentation as on main (~30px, Typora-like). Also keeps bullet markers
+   inside the block box, which content-visibility (paint containment) would clip. */
 .muya-editor-wrapper .mu-editor ul,
 .muya-editor-wrapper .mu-editor ol {
   padding-left: 30px;
@@ -104,4 +97,15 @@ button, a, input {
 /* Align content with main's layout (upstream container adds 50px). */
 .muya-editor-wrapper .mu-container {
   padding-left: 34px;
+}
+
+/* Skip layout/paint of off-screen top-level blocks (big win on large files).
+   Real heights are remembered (`auto`) after a one-time measuring pass right
+   after load (see Editor.tsx), so the scrollbar stays accurate. */
+.makora-editor .mu-container > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1.8em;
+}
+.makora-editor.cv-measure .mu-container > * {
+  content-visibility: visible;
 }

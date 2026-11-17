@@ -184,3 +184,45 @@ test('lossless save also holds for consecutive saves', async ({ page }, info) =>
   await page.keyboard.press(`${mod}+s`);
   await expect.poll(() => disk(name), { timeout: 10_000 }).toBe('|a|b|\n|-|-|\n\n\n\nfirst 1\n\nsecond 2\n');
 });
+
+test('caret at the end of a long file is scrolled into view and the scrollbar reaches the bottom', async ({ page }, info) => {
+  test.skip(info.project.name === 'ipad', 'keyboard navigation test');
+  // Long wrapped paragraphs, like a real journal: estimates of off-screen
+  // block heights must not leave the scroll range short.
+  const para = '가나다라 마바사 아자차카 타파하 '.repeat(30);
+  const body = '# Long\n\n' + Array.from({ length: 60 }, (_, i) => `${i} ${para}`).join('\n\n') + '\n\nTHE END\n';
+  const name = freshFile(info.project.name, body);
+  await connect(page);
+  await openFile(page, name);
+  // Walk down with the arrow key, as a user does; Muya moves the caret
+  // between blocks itself, so the view must follow.
+  await page.locator('.makora-editor .mu-content').first().click();
+  for (let i = 0; i < 1500; i++) {
+    await page.keyboard.press('ArrowDown');
+    if (i % 100 === 99 && (await page.evaluate(() => window.getSelection()?.focusNode?.textContent?.includes('THE END')))) break;
+  }
+  await page.waitForTimeout(300);
+  const scroller = page.locator('#editor-scroll');
+  const end = page.locator('.makora-editor .mu-content', { hasText: 'THE END' });
+  await expect(end).toBeInViewport();
+  const { top, height, client } = await scroller.evaluate((el) => ({ top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight }));
+  expect(top + client).toBeGreaterThan(height - 150); // at (or within the bottom padding of) the true bottom
+});
+
+test('scroll height is exact for long wrapped paragraphs (no off-screen estimates)', async ({ page }, info) => {
+  const para = '가나다라 마바사 아자차카 타파하 '.repeat(30);
+  const body = '# Long\n\n' + Array.from({ length: 200 }, (_, i) => `${i} ${para}`).join('\n\n') + '\n';
+  const name = freshFile(info.project.name, body);
+  await connect(page);
+  await openFile(page, name);
+  const scroller = page.locator('#editor-scroll');
+  await page.waitForTimeout(1500); // let the post-load measuring pass run
+  const skipped = await scroller.evaluate((el) => el.scrollHeight);
+  const real = await scroller.evaluate(async (el) => {
+    el.querySelector('.makora-editor')!.classList.add('cv-measure');
+    const h = el.scrollHeight;
+    el.querySelector('.makora-editor')!.classList.remove('cv-measure');
+    return h;
+  });
+  expect(Math.abs(skipped - real)).toBeLessThan(real * 0.01);
+});
